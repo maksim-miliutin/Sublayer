@@ -1,0 +1,9 @@
+*.exe
+/sublayer
+
+*.wav
+
+models/
+*.bin
+
+*.log
