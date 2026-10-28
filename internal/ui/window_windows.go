@@ -201,11 +201,10 @@ func Open() (Window, error) {
 	return w, nil
 }
 
-// Windows queues a window's messages on the thread that made it, so the window is
-// made, served and torn down from one thread the goroutine never leaves.
+// Windows queues a window's messages on the thread that made it. That thread is never
+// unlocked, so it dies with the goroutine instead of carrying a stray WM_QUIT onward.
 func (w *window) run(ready chan<- error) {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 
 	if err := w.create(); err != nil {
 		if w.hwnd != 0 {
