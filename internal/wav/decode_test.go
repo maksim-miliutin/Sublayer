@@ -59,6 +59,17 @@ func TestDecodeReadsBackWhatEncodeWrote(t *testing.T) {
 	}
 }
 
+func TestDecodeReadsBackAnEmptyRecording(t *testing.T) {
+	got, rate, err := Decode(Encode(nil, 16000))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got) != 0 || rate != 16000 {
+		t.Errorf("got %d samples at %d Hz, want none at 16000", len(got), rate)
+	}
+}
+
 func TestDecodeSkipsChunksItDoesNotNeed(t *testing.T) {
 	file := riff(fmtChunk(1, 1, 16000, 16), chunk("LIST", []byte("odd")), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
 
@@ -83,6 +94,22 @@ func TestDecodeTakesWhatThereIsOfACutOffData(t *testing.T) {
 
 	if len(got) != 2 {
 		t.Errorf("got %d samples, want the 2 actually present", len(got))
+	}
+}
+
+// The bug this guards: a streamed file writes its data size as all ones, which turned
+// negative in a 32-bit int and the slice of the chunk panicked.
+func TestDecodeTakesTheRestOfTheFileForAnEndlessDataSize(t *testing.T) {
+	file := riff(fmtChunk(1, 1, 16000, 16), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
+	binary.LittleEndian.PutUint32(file[len(file)-8:], 0xffffffff)
+
+	got, _, err := Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got) != 2 {
+		t.Errorf("got %d samples, want the 2 that follow an endless data size", len(got))
 	}
 }
 
