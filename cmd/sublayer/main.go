@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-var errUsage = errors.New("usage: sublayer record <file.wav> | sublayer overlay")
+var errUsage = errors.New("usage: sublayer record <file.wav> | sublayer listen [file.wav] | sublayer overlay")
 
 func main() {
 	err := run(os.Args[1:])
@@ -27,6 +27,10 @@ func run(args []string) error {
 	switch {
 	case len(args) == 2 && args[0] == "record":
 		return record(args[1])
+	case len(args) == 1 && args[0] == "listen":
+		return listen()
+	case len(args) == 2 && args[0] == "listen":
+		return listenFile(args[1])
 	case len(args) == 1 && args[0] == "overlay":
 		return overlay()
 	}

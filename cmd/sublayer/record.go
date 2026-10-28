@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"time"
@@ -17,21 +18,7 @@ func record(path string) error {
 		return err
 	}
 	defer source.Close()
-
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	defer signal.Stop(interrupt)
-
-	finished := make(chan struct{})
-	defer close(finished)
-
-	go func() {
-		select {
-		case <-interrupt:
-			source.Close()
-		case <-finished:
-		}
-	}()
+	defer closeOnInterrupt(source)()
 
 	fmt.Fprintln(os.Stderr, "recording what the speakers play; press Ctrl+C to stop")
 	began := time.Now()
@@ -68,5 +55,24 @@ func collect(source capture.Source) ([]float32, error) {
 		}
 
 		samples = append(samples, chunk...)
+	}
+}
+
+func closeOnInterrupt(c io.Closer) (stop func()) {
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+
+	finished := make(chan struct{})
+	go func() {
+		select {
+		case <-interrupt:
+			c.Close()
+		case <-finished:
+		}
+	}()
+
+	return func() {
+		signal.Stop(interrupt)
+		close(finished)
 	}
 }
