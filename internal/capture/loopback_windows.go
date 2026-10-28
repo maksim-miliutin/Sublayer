@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/maksim-miliutin/Sublayer/internal/winapi"
 )
 
 type guid struct {
@@ -34,7 +36,6 @@ const (
 	shareModeShared     = 0
 	streamLoopback      = 0x00020000
 	bufferSilent        = 0x2
-	searchSystem32      = 0x800
 
 	bufferSpan = 10_000_000 // 100-nanosecond units: one second of room in the device buffer
 )
@@ -65,47 +66,23 @@ type ole struct {
 	taskMemFree    uintptr
 }
 
-var (
-	kernel32      = syscall.NewLazyDLL("kernel32.dll")
-	loadLibraryEx = kernel32.NewProc("LoadLibraryExW")
-	loadOle       = sync.OnceValues(findOle)
-)
+var loadOle = sync.OnceValues(findOle)
 
 func Open() (Source, error) {
 	return startStream(&wasapi{}, pollEvery)
 }
 
-// syscall would look for a DLL it does not know in the program's folder first;
-// ole32 belongs in System32 and is taken from nowhere else.
 func findOle() (ole, error) {
-	name, err := syscall.UTF16PtrFromString("ole32.dll")
-	if err != nil {
-		return ole{}, err
-	}
-
-	module, _, callErr := loadLibraryEx.Call(uintptr(unsafe.Pointer(name)), 0, searchSystem32)
-	if module == 0 {
-		return ole{}, fmt.Errorf("%w: ole32.dll: %w", ErrUnsupported, callErr)
-	}
-
 	var o ole
-	procs := []struct {
-		name string
-		addr *uintptr
-	}{
-		{"CoInitializeEx", &o.initialize},
-		{"CoUninitialize", &o.uninitialize},
-		{"CoCreateInstance", &o.createInstance},
-		{"CoTaskMemFree", &o.taskMemFree},
-	}
 
-	for _, p := range procs {
-		addr, err := syscall.GetProcAddress(syscall.Handle(module), p.name)
-		if err != nil {
-			return ole{}, fmt.Errorf("%w: %s: %w", ErrUnsupported, p.name, err)
-		}
-
-		*p.addr = addr
+	err := winapi.Load("ole32.dll",
+		winapi.Proc{Name: "CoInitializeEx", Addr: &o.initialize},
+		winapi.Proc{Name: "CoUninitialize", Addr: &o.uninitialize},
+		winapi.Proc{Name: "CoCreateInstance", Addr: &o.createInstance},
+		winapi.Proc{Name: "CoTaskMemFree", Addr: &o.taskMemFree},
+	)
+	if err != nil {
+		return ole{}, fmt.Errorf("%w: %w", ErrUnsupported, err)
 	}
 
 	return o, nil
