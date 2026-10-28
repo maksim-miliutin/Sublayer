@@ -11,6 +11,7 @@ const (
 	formatPCM      = 1
 	channels       = 1
 	bytesPerSample = 2
+	fullScale      = math.MaxInt16
 )
 
 func Encode(samples []float32, rate int) []byte {
@@ -46,12 +47,12 @@ func pcm16(s float32) int16 {
 	}
 
 	if s >= 1 {
-		return math.MaxInt16
+		return fullScale
 	}
 
 	if s <= -1 {
-		return -math.MaxInt16
+		return -fullScale
 	}
 
-	return int16(math.Round(float64(s) * math.MaxInt16))
+	return int16(math.Round(float64(s) * fullScale))
 }
