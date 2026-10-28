@@ -14,11 +14,12 @@ func Decode(file []byte) ([]float32, int, error) {
 	}
 
 	var format, pcm []byte
-	for at := 12; at+8 <= len(file); {
-		id := string(file[at : at+4])
-		size := int(binary.LittleEndian.Uint32(file[at+4:]))
-		body := file[at+8 : min(at+8+size, len(file))]
+	for rest := file[12:]; len(rest) >= 8; {
+		id := string(rest[:4])
+		size := uint64(binary.LittleEndian.Uint32(rest[4:]))
+		rest = rest[8:]
 
+		body := rest[:min(size, uint64(len(rest)))]
 		switch id {
 		case "fmt ":
 			format = body
@@ -26,7 +27,7 @@ func Decode(file []byte) ([]float32, int, error) {
 			pcm = body
 		}
 
-		at += 8 + size + size%2
+		rest = rest[min(size+size%2, uint64(len(rest))):]
 	}
 
 	rate, err := readFormat(format)
