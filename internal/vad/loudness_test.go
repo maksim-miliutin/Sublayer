@@ -34,6 +34,18 @@ func TestLoudnessOfSilenceBottomsOut(t *testing.T) {
 	}
 }
 
+func TestLoudnessCountsANaNSampleAsSilence(t *testing.T) {
+	frame := sine(320, 0.5)
+	frame[7] = float32(math.NaN())
+
+	zeroed := sine(320, 0.5)
+	zeroed[7] = 0
+
+	if got, want := loudness(frame), loudness(zeroed); got != want {
+		t.Errorf("a frame with a NaN sample is %v dB, want the %v dB of the same frame with a zero there", got, want)
+	}
+}
+
 func TestFloorIsTheQuietestRecentLevel(t *testing.T) {
 	f := newFloor(4)
 	for _, level := range []float64{-20, -45, -30} {
