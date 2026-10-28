@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -27,11 +26,7 @@ func listen() error {
 		if err != nil {
 			report(s.Flush())
 
-			if errors.Is(err, capture.ErrClosed) {
-				return nil
-			}
-
-			return err
+			return unlessClosed(err)
 		}
 
 		report(s.Feed(chunk))
