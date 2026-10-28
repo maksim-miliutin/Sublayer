@@ -360,3 +360,14 @@ func TestSegmenterFinishesOnARateTooLowForItsFrames(t *testing.T) {
 		t.Fatal("Feed at 10 Hz did not return in two seconds")
 	}
 }
+
+// The bug this guards: one NaN sample made the floor NaN, every comparison with it
+// false, and no phrase could open until the NaN left the three-second window.
+func TestSegmenterIsNotBlindedByOneNaNSample(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(1)), silence(secs(1)))
+	in[100] = float32(math.NaN())
+
+	if got := run(in); len(got) != 1 {
+		t.Errorf("got %d phrases after a NaN sample, want 1", len(got))
+	}
+}

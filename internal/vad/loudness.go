@@ -10,7 +10,9 @@ const silenceDB = -70.0 // decibels below full scale; anything quieter counts as
 func loudness(frame []float32) float64 {
 	var sum float64
 	for _, s := range frame {
-		sum += float64(s) * float64(s)
+		if !math.IsNaN(float64(s)) {
+			sum += float64(s) * float64(s)
+		}
 	}
 
 	return max(silenceDB, 10*math.Log10(sum/float64(len(frame))+1e-12))
