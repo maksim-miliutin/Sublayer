@@ -342,3 +342,21 @@ func TestSegmenterKeepsTheSpeechAfterACutThatEndsRightThere(t *testing.T) {
 		t.Errorf("the part after the cut ends at %v, want about %v with all its speech", got[1].End, secs(12.8)+postRoll)
 	}
 }
+
+// The bug this guards: below 50 Hz a 20 ms frame held no samples at all, and Feed went
+// round forever without consuming any, so an odd file hung sublayer listen.
+func TestSegmenterFinishesOnARateTooLowForItsFrames(t *testing.T) {
+	done := make(chan struct{})
+	go func() {
+		s := New(10, Defaults())
+		s.Feed(make([]float32, 100))
+		s.Flush()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Feed at 10 Hz did not return in two seconds")
+	}
+}

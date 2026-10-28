@@ -62,7 +62,7 @@ type note struct {
 }
 
 func New(rate int, c Config) *Segmenter {
-	frame := int64(rate) * int64(frameSpan) / int64(time.Second)
+	frame := max(1, int64(rate)*int64(frameSpan)/int64(time.Second))
 	frames := func(d time.Duration) int { return int((d + frameSpan - 1) / frameSpan) }
 	samples := func(d time.Duration) int64 { return int64(rate) * int64(d) / int64(time.Second) }
 
