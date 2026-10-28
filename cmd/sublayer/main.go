@@ -1,18 +1,35 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
 
+var errUsage = errors.New("usage: sublayer record <file.wav> | sublayer overlay")
+
 func main() {
-	if len(os.Args) != 3 || os.Args[1] != "record" {
-		fmt.Fprintln(os.Stderr, "usage: sublayer record <file.wav>")
+	err := run(os.Args[1:])
+	if err == nil {
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, err)
+
+	if errors.Is(err, errUsage) {
 		os.Exit(2)
 	}
 
-	if err := record(os.Args[2]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	os.Exit(1)
+}
+
+func run(args []string) error {
+	switch {
+	case len(args) == 2 && args[0] == "record":
+		return record(args[1])
+	case len(args) == 1 && args[0] == "overlay":
+		return overlay()
 	}
+
+	return errUsage
 }
