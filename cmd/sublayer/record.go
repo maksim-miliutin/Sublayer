@@ -3,9 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/signal"
 	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
@@ -46,33 +44,10 @@ func collect(source capture.Source) ([]float32, error) {
 	var samples []float32
 	for {
 		chunk, err := source.Read()
-		if errors.Is(err, capture.ErrClosed) {
-			return samples, nil
-		}
-
 		if err != nil {
-			return samples, err
+			return samples, unlessClosed(err)
 		}
 
 		samples = append(samples, chunk...)
-	}
-}
-
-func closeOnInterrupt(c io.Closer) (stop func()) {
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-
-	finished := make(chan struct{})
-	go func() {
-		select {
-		case <-interrupt:
-			c.Close()
-		case <-finished:
-		}
-	}()
-
-	return func() {
-		signal.Stop(interrupt)
-		close(finished)
 	}
 }
