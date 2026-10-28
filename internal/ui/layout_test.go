@@ -16,6 +16,10 @@ func numbered(n int) []Pair {
 	return out
 }
 
+func space(width, maxHeight int) layout {
+	return layout{metrics: m96, width: width, maxHeight: maxHeight}
+}
+
 func even(n, original, translation int) []heights {
 	out := make([]heights, n)
 	for i := range out {
@@ -26,7 +30,7 @@ func even(n, original, translation int) []heights {
 }
 
 func TestArrangeStacksTheNewestPairAtTheBottom(t *testing.T) {
-	s := arrange(Frame{Pairs: numbered(3)}, even(3, 18, 26), 400, 1000, m96)
+	s := space(400, 1000).arrange(Frame{Pairs: numbered(3)}, even(3, 18, 26))
 
 	if len(s.plates) != 3 {
 		t.Fatalf("got %d plates, want 3", len(s.plates))
@@ -48,7 +52,7 @@ func TestArrangeStacksTheNewestPairAtTheBottom(t *testing.T) {
 }
 
 func TestArrangeWrapsEachPairInItsPlate(t *testing.T) {
-	s := arrange(Frame{Pairs: numbered(1)}, even(1, 18, 26), 400, 1000, m96)
+	s := space(400, 1000).arrange(Frame{Pairs: numbered(1)}, even(1, 18, 26))
 
 	p := s.plates[0].area
 	if want := m96.pad + 18 + m96.line + 26 + m96.pad; p.h != want {
@@ -74,7 +78,7 @@ func TestArrangeWrapsEachPairInItsPlate(t *testing.T) {
 }
 
 func TestArrangeFadesTheTextOfOlderPairsDownToAFloor(t *testing.T) {
-	s := arrange(Frame{Pairs: numbered(6)}, even(6, 18, 26), 400, 2000, m96)
+	s := space(400, 2000).arrange(Frame{Pairs: numbered(6)}, even(6, 18, 26))
 
 	for i := 2; i < len(s.blocks); i += 2 {
 		if s.blocks[i].alpha < s.blocks[i-2].alpha {
@@ -100,7 +104,7 @@ func TestArrangeFadesTheTextOfOlderPairsDownToAFloor(t *testing.T) {
 // A plate that faded with its text let a light window shine through and left white
 // text unreadable on it, so plates stay equally dark however old their pair is.
 func TestArrangeKeepsEveryPlateEquallyDark(t *testing.T) {
-	s := arrange(Frame{Pairs: numbered(6)}, even(6, 18, 26), 400, 2000, m96)
+	s := space(400, 2000).arrange(Frame{Pairs: numbered(6)}, even(6, 18, 26))
 
 	for i, p := range s.plates {
 		if p.alpha != plateAlpha {
@@ -113,7 +117,7 @@ func TestArrangeDropsTheOldestPairsThatDoNotFit(t *testing.T) {
 	plate := m96.pad + 18 + m96.line + 26 + m96.pad
 	room := m96.dot + 2*(m96.gap+plate)
 
-	s := arrange(Frame{Pairs: numbered(5)}, even(5, 18, 26), 400, room, m96)
+	s := space(400, room).arrange(Frame{Pairs: numbered(5)}, even(5, 18, 26))
 
 	if len(s.plates) != 2 {
 		t.Fatalf("got %d plates in room for two, want 2", len(s.plates))
@@ -129,7 +133,7 @@ func TestArrangeDropsTheOldestPairsThatDoNotFit(t *testing.T) {
 }
 
 func TestArrangeKeepsTheNewestPairEvenWhenItAloneIsTooTall(t *testing.T) {
-	s := arrange(Frame{Pairs: numbered(3)}, even(3, 300, 300), 400, 100, m96)
+	s := space(400, 100).arrange(Frame{Pairs: numbered(3)}, even(3, 300, 300))
 
 	if len(s.plates) != 1 || s.blocks[1].text != "translation 2" {
 		t.Errorf("got %d plates ending with %q, want only the newest pair", len(s.plates), s.blocks[len(s.blocks)-1].text)
@@ -137,7 +141,7 @@ func TestArrangeKeepsTheNewestPairEvenWhenItAloneIsTooTall(t *testing.T) {
 }
 
 func TestArrangeShowsOnlyTheStateDotWithNothingToSay(t *testing.T) {
-	s := arrange(Frame{State: Paused}, nil, 400, 1000, m96)
+	s := space(400, 1000).arrange(Frame{State: Paused}, nil)
 
 	if len(s.plates) != 0 || len(s.blocks) != 0 {
 		t.Errorf("got %d plates and %d blocks for no pairs", len(s.plates), len(s.blocks))
@@ -155,7 +159,7 @@ func TestArrangeShowsOnlyTheStateDotWithNothingToSay(t *testing.T) {
 func TestArrangeLeavesNoRoomForAMissingOriginal(t *testing.T) {
 	f := Frame{Pairs: []Pair{{Translation: "only this"}}}
 
-	s := arrange(f, []heights{{original: 0, translation: 26}}, 400, 1000, m96)
+	s := space(400, 1000).arrange(f, []heights{{original: 0, translation: 26}})
 
 	if len(s.blocks) != 1 || s.blocks[0].text != "only this" {
 		t.Fatalf("got blocks %+v, want the translation alone", s.blocks)
@@ -193,8 +197,7 @@ func TestPlaceSitsAtTheBottomLeftOfTheWorkArea(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		width := widthFor(c.work)
-		got := place(c.work, width, 300, m96)
+		got := layoutFor(c.work, m96).place(300)
 
 		if got.x != c.work.x+m96.margin {
 			t.Errorf("%s: left edge at %d, want %d", c.name, got.x, c.work.x+m96.margin)
@@ -207,6 +210,14 @@ func TestPlaceSitsAtTheBottomLeftOfTheWorkArea(t *testing.T) {
 		if want := c.work.w * 3 / 10; got.w != want || got.h != 300 {
 			t.Errorf("%s: size %dx%d, want %dx300", c.name, got.w, got.h, want)
 		}
+	}
+}
+
+func TestLayoutLeavesAMarginAboveAndBelow(t *testing.T) {
+	work := rect{x: 0, y: 40, w: 1920, h: 1000}
+
+	if got, want := layoutFor(work, m96).maxHeight, 1000-2*m96.margin; got != want {
+		t.Errorf("the overlay may grow to %d, want %d", got, want)
 	}
 }
 

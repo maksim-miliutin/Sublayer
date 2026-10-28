@@ -90,8 +90,8 @@ func failure(name string, err error) error {
 }
 
 type renderer struct {
-	g           *gdi
-	m           metrics
+	gdi         *gdi
+	metrics     metrics
 	original    uintptr
 	translation uintptr
 }
@@ -102,7 +102,7 @@ func newRenderer(dpi int) (*renderer, error) {
 		return nil, err
 	}
 
-	r := &renderer{g: g, m: scaledMetrics(dpi)}
+	r := &renderer{gdi: g, metrics: scaledMetrics(dpi)}
 
 	r.original, err = g.font(originalPoints*dpi/72, fwNormal)
 	if err != nil {
@@ -137,13 +137,13 @@ func (g *gdi) font(pixels, weight int) (uintptr, error) {
 func (r *renderer) close() {
 	for _, f := range []uintptr{r.original, r.translation} {
 		if f != 0 {
-			syscall.SyscallN(r.g.deleteObject, f)
+			syscall.SyscallN(r.gdi.deleteObject, f)
 		}
 	}
 }
 
 type canvas struct {
-	g      *gdi
+	gdi    *gdi
 	dc     uintptr
 	bitmap uintptr
 	old    uintptr
@@ -151,21 +151,21 @@ type canvas struct {
 	scene  scene
 }
 
-func (r *renderer) draw(f Frame, width, maxHeight int) (*canvas, error) {
-	dc, _, callErr := syscall.SyscallN(r.g.createCompatibleDC, 0)
+func (r *renderer) draw(f Frame, l layout) (*canvas, error) {
+	dc, _, callErr := syscall.SyscallN(r.gdi.createCompatibleDC, 0)
 	if dc == 0 {
 		return nil, failure("CreateCompatibleDC", callErr)
 	}
 
-	c := &canvas{g: r.g, dc: dc}
+	c := &canvas{gdi: r.gdi, dc: dc}
 
-	measured, err := r.measure(dc, f, width-2*r.m.pad)
+	measured, err := r.measure(dc, f, l.textWidth())
 	if err != nil {
 		c.free()
 		return nil, err
 	}
 
-	c.scene = arrange(f, measured, width, maxHeight, r.m)
+	c.scene = l.arrange(f, measured)
 	if err := c.allocate(); err != nil {
 		c.free()
 		return nil, err
@@ -177,23 +177,25 @@ func (r *renderer) draw(f Frame, width, maxHeight int) (*canvas, error) {
 	}
 
 	// GDI batches drawing; the bits hold the text only once the batch is flushed.
-	syscall.SyscallN(r.g.gdiFlush)
+	syscall.SyscallN(r.gdi.gdiFlush)
 	copy(c.pixels, paint(c.pixels, c.scene))
 
 	return c, nil
 }
 
 func (r *renderer) measure(dc uintptr, f Frame, width int) ([]heights, error) {
+	rule := ruler{gdi: r.gdi, dc: dc, width: width}
+
 	out := make([]heights, len(f.Pairs))
 	for i, p := range f.Pairs {
 		var err error
 
-		out[i].original, err = r.height(dc, r.original, p.Original, width)
+		out[i].original, err = rule.height(r.original, p.Original)
 		if err != nil {
 			return nil, err
 		}
 
-		out[i].translation, err = r.height(dc, r.translation, p.Translation, width)
+		out[i].translation, err = rule.height(r.translation, p.Translation)
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +204,13 @@ func (r *renderer) measure(dc uintptr, f Frame, width int) ([]heights, error) {
 	return out, nil
 }
 
-func (r *renderer) height(dc, font uintptr, text string, width int) (int, error) {
+type ruler struct {
+	gdi   *gdi
+	dc    uintptr
+	width int
+}
+
+func (r ruler) height(font uintptr, text string) (int, error) {
 	if text == "" {
 		return 0, nil
 	}
@@ -212,10 +220,10 @@ func (r *renderer) height(dc, font uintptr, text string, width int) (int, error)
 		return 0, failure("text", err)
 	}
 
-	syscall.SyscallN(r.g.selectObject, dc, font)
+	syscall.SyscallN(r.gdi.selectObject, r.dc, font)
 
-	area := winRect{right: int32(width)}
-	h, _, callErr := syscall.SyscallN(r.g.drawText, dc, uintptr(unsafe.Pointer(chars)), wholeString,
+	area := winRect{right: int32(r.width)}
+	h, _, callErr := syscall.SyscallN(r.gdi.drawText, r.dc, uintptr(unsafe.Pointer(chars)), wholeString,
 		uintptr(unsafe.Pointer(&area)), dtCalcRect|dtWordBreak|dtNoPrefix)
 	if h == 0 {
 		return 0, failure("DrawTextW", callErr)
@@ -227,7 +235,7 @@ func (r *renderer) height(dc, font uintptr, text string, width int) (int, error)
 // A negative height asks for rows from the top down, the order the scene is laid out in.
 func (c *canvas) allocate() error {
 	info := bitmapInfo{
-		size:   40,
+		size:   uint32(unsafe.Offsetof(bitmapInfo{}.colors)),
 		width:  int32(c.scene.width),
 		height: -int32(c.scene.height),
 		planes: 1,
@@ -235,14 +243,14 @@ func (c *canvas) allocate() error {
 	}
 
 	var bits unsafe.Pointer
-	bitmap, _, callErr := syscall.SyscallN(c.g.createDIBSection, c.dc, uintptr(unsafe.Pointer(&info)),
+	bitmap, _, callErr := syscall.SyscallN(c.gdi.createDIBSection, c.dc, uintptr(unsafe.Pointer(&info)),
 		dibRGBColors, uintptr(unsafe.Pointer(&bits)), 0, 0)
 	if bitmap == 0 {
 		return failure("CreateDIBSection", callErr)
 	}
 
 	c.bitmap = bitmap
-	c.old, _, _ = syscall.SyscallN(c.g.selectObject, c.dc, bitmap)
+	c.old, _, _ = syscall.SyscallN(c.gdi.selectObject, c.dc, bitmap)
 	c.pixels = unsafe.Slice((*byte)(bits), 4*c.scene.width*c.scene.height)
 	clear(c.pixels)
 
@@ -250,8 +258,8 @@ func (c *canvas) allocate() error {
 }
 
 func (r *renderer) write(c *canvas) error {
-	syscall.SyscallN(r.g.setBkMode, c.dc, bkTransparent)
-	syscall.SyscallN(r.g.setTextColor, c.dc, white)
+	syscall.SyscallN(r.gdi.setBkMode, c.dc, bkTransparent)
+	syscall.SyscallN(r.gdi.setTextColor, c.dc, white)
 
 	for _, b := range c.scene.blocks {
 		font := r.original
@@ -264,10 +272,10 @@ func (r *renderer) write(c *canvas) error {
 			return failure("text", err)
 		}
 
-		syscall.SyscallN(r.g.selectObject, c.dc, font)
+		syscall.SyscallN(r.gdi.selectObject, c.dc, font)
 
 		area := winRect{left: int32(b.area.x), top: int32(b.area.y), right: int32(b.area.x + b.area.w), bottom: int32(b.area.bottom())}
-		h, _, callErr := syscall.SyscallN(r.g.drawText, c.dc, uintptr(unsafe.Pointer(chars)), wholeString,
+		h, _, callErr := syscall.SyscallN(r.gdi.drawText, c.dc, uintptr(unsafe.Pointer(chars)), wholeString,
 			uintptr(unsafe.Pointer(&area)), dtWordBreak|dtNoPrefix)
 		if h == 0 {
 			return failure("DrawTextW", callErr)
@@ -279,9 +287,9 @@ func (r *renderer) write(c *canvas) error {
 
 func (c *canvas) free() {
 	if c.bitmap != 0 {
-		syscall.SyscallN(c.g.selectObject, c.dc, c.old)
-		syscall.SyscallN(c.g.deleteObject, c.bitmap)
+		syscall.SyscallN(c.gdi.selectObject, c.dc, c.old)
+		syscall.SyscallN(c.gdi.deleteObject, c.bitmap)
 	}
 
-	syscall.SyscallN(c.g.deleteDC, c.dc)
+	syscall.SyscallN(c.gdi.deleteDC, c.dc)
 }

@@ -144,6 +144,8 @@ var (
 	opened = map[uintptr]*window{}
 )
 
+// Windows calls a window procedure with exactly these four words, and NewCallback
+// passes them on as they are, so they stay apart rather than gathered in a struct.
 func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 	u, _ := loadUser()
 
@@ -174,14 +176,14 @@ func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 }
 
 type window struct {
-	u       *user
-	r       *renderer
-	hwnd    uintptr
-	mu      sync.Mutex
-	frame   Frame
-	err     error
-	closing sync.Once
-	done    chan struct{}
+	user     *user
+	renderer *renderer
+	hwnd     uintptr
+	mu       sync.Mutex
+	frame    Frame
+	err      error
+	closing  sync.Once
+	done     chan struct{}
 }
 
 func Open() (Window, error) {
@@ -190,7 +192,7 @@ func Open() (Window, error) {
 		return nil, err
 	}
 
-	w := &window{u: u, done: make(chan struct{})}
+	w := &window{user: u, done: make(chan struct{})}
 	ready := make(chan error)
 	go w.run(ready)
 
@@ -208,11 +210,11 @@ func (w *window) run(ready chan<- error) {
 
 	if err := w.create(); err != nil {
 		if w.hwnd != 0 {
-			syscall.SyscallN(w.u.destroyWindow, w.hwnd)
+			syscall.SyscallN(w.user.destroyWindow, w.hwnd)
 		}
 
-		if w.r != nil {
-			w.r.close()
+		if w.renderer != nil {
+			w.renderer.close()
 		}
 
 		ready <- err
@@ -223,19 +225,19 @@ func (w *window) run(ready chan<- error) {
 	ready <- nil
 
 	w.loop()
-	w.r.close()
+	w.renderer.close()
 	close(w.done)
 }
 
 func (w *window) create() error {
-	syscall.SyscallN(w.u.setDpiAwareness, perMonitorAwareV2)
-	dpi, _, _ := syscall.SyscallN(w.u.getDpiForSystem)
+	syscall.SyscallN(w.user.setDpiAwareness, perMonitorAwareV2)
+	dpi, _, _ := syscall.SyscallN(w.user.getDpiForSystem)
 
 	r, err := newRenderer(int(dpi))
 	if err != nil {
 		return err
 	}
-	w.r = r
+	w.renderer = r
 
 	class, err := registerClass()
 	if err != nil {
@@ -248,8 +250,8 @@ func (w *window) create() error {
 	}
 
 	style := uintptr(wsExLayered | wsExTransparent | wsExTopmost | wsExToolWindow | wsExNoActivate)
-	hwnd, _, callErr := syscall.SyscallN(w.u.createWindow, style, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)),
-		wsPopup, 0, 0, 1, 1, 0, 0, w.u.instance, 0)
+	hwnd, _, callErr := syscall.SyscallN(w.user.createWindow, style, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)),
+		wsPopup, 0, 0, 1, 1, 0, 0, w.user.instance, 0)
 	if hwnd == 0 {
 		return failure("CreateWindowExW", callErr)
 	}
@@ -263,7 +265,7 @@ func (w *window) create() error {
 		return err
 	}
 
-	syscall.SyscallN(w.u.showWindow, hwnd, swShowNoActivate)
+	syscall.SyscallN(w.user.showWindow, hwnd, swShowNoActivate)
 
 	return nil
 }
@@ -271,13 +273,13 @@ func (w *window) create() error {
 func (w *window) loop() {
 	var m msg
 	for {
-		got, _, _ := syscall.SyscallN(w.u.getMessage, uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		got, _, _ := syscall.SyscallN(w.user.getMessage, uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(got) <= 0 {
 			return
 		}
 
-		syscall.SyscallN(w.u.translateMessage, uintptr(unsafe.Pointer(&m)))
-		syscall.SyscallN(w.u.dispatchMessage, uintptr(unsafe.Pointer(&m)))
+		syscall.SyscallN(w.user.translateMessage, uintptr(unsafe.Pointer(&m)))
+		syscall.SyscallN(w.user.dispatchMessage, uintptr(unsafe.Pointer(&m)))
 	}
 }
 
@@ -291,7 +293,7 @@ func (w *window) Show(f Frame) error {
 		return err
 	}
 
-	posted, _, callErr := syscall.SyscallN(w.u.postMessage, w.hwnd, wmRedraw, 0, 0)
+	posted, _, callErr := syscall.SyscallN(w.user.postMessage, w.hwnd, wmRedraw, 0, 0)
 	if posted == 0 {
 		return failure("PostMessageW", callErr)
 	}
@@ -300,7 +302,7 @@ func (w *window) Show(f Frame) error {
 }
 
 func (w *window) Close() error {
-	w.closing.Do(func() { syscall.SyscallN(w.u.postMessage, w.hwnd, wmClose, 0, 0) })
+	w.closing.Do(func() { syscall.SyscallN(w.user.postMessage, w.hwnd, wmClose, 0, 0) })
 	<-w.done
 
 	w.mu.Lock()
@@ -328,27 +330,27 @@ func (w *window) refresh() error {
 	w.mu.Unlock()
 
 	var area winRect
-	ok, _, callErr := syscall.SyscallN(w.u.systemParametersInfo, spiGetWorkArea, 0, uintptr(unsafe.Pointer(&area)), 0)
+	ok, _, callErr := syscall.SyscallN(w.user.systemParametersInfo, spiGetWorkArea, 0, uintptr(unsafe.Pointer(&area)), 0)
 	if ok == 0 {
 		return failure("SystemParametersInfoW", callErr)
 	}
 
 	work := rect{x: int(area.left), y: int(area.top), w: int(area.right - area.left), h: int(area.bottom - area.top)}
-	width := widthFor(work)
+	l := layoutFor(work, w.renderer.metrics)
 
-	c, err := w.r.draw(f, width, work.h-2*w.r.m.margin)
+	c, err := w.renderer.draw(f, l)
 	if err != nil {
 		return err
 	}
 	defer c.free()
 
-	at := place(work, width, c.scene.height, w.r.m)
+	at := l.place(c.scene.height)
 	dst := point{x: int32(at.x), y: int32(at.y)}
 	extent := size{cx: int32(at.w), cy: int32(at.h)}
 	var src point
 	blend := blendFunction{op: acSrcOver, constantAlpha: 255, format: acSrcAlpha}
 
-	ok, _, callErr = syscall.SyscallN(w.u.updateLayeredWindow, w.hwnd, 0, uintptr(unsafe.Pointer(&dst)), uintptr(unsafe.Pointer(&extent)),
+	ok, _, callErr = syscall.SyscallN(w.user.updateLayeredWindow, w.hwnd, 0, uintptr(unsafe.Pointer(&dst)), uintptr(unsafe.Pointer(&extent)),
 		c.dc, uintptr(unsafe.Pointer(&src)), 0, uintptr(unsafe.Pointer(&blend)), ulwAlpha)
 	if ok == 0 {
 		return failure("UpdateLayeredWindow", callErr)
