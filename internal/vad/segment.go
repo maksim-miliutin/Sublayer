@@ -25,6 +25,7 @@ const (
 	preRoll   = 200 * time.Millisecond
 	postRoll  = 200 * time.Millisecond
 	floorSpan = 3 * time.Second
+	cutReach  = 3 * time.Second
 
 	onMargin  = 12.0
 	offMargin = 6.0
@@ -37,6 +38,8 @@ type Segmenter struct {
 	endPause  int
 	preRoll   int64
 	postRoll  int64
+	maxPhrase int64
+	cutReach  int
 	floor     *floor
 
 	pending []float32
@@ -49,6 +52,13 @@ type Segmenter struct {
 	voiced    int
 	quiet     int
 	lastVoice int64
+	notes     []note
+	noteAt    int64
+}
+
+type note struct {
+	level  float64
+	voiced bool
 }
 
 func New(rate int, c Config) *Segmenter {
@@ -63,6 +73,8 @@ func New(rate int, c Config) *Segmenter {
 		endPause:  frames(c.EndPause),
 		preRoll:   samples(preRoll),
 		postRoll:  samples(postRoll),
+		maxPhrase: samples(c.MaxPhrase),
+		cutReach:  frames(cutReach),
 		floor:     newFloor(frames(floorSpan)),
 	}
 }
@@ -117,9 +129,13 @@ func (s *Segmenter) step(frame []float32) (Phrase, bool) {
 		s.open = true
 		s.start = max(0, s.at-s.preRoll)
 		s.voiced, s.quiet = 0, 0
+		s.notes, s.noteAt = s.notes[:0], s.at
 	}
 
-	if level >= floor+offMargin {
+	voiced := level >= floor+offMargin
+	s.notes = append(s.notes, note{level: level, voiced: voiced})
+
+	if voiced {
 		s.voiced++
 		s.quiet = 0
 		s.lastVoice = end
@@ -128,7 +144,11 @@ func (s *Segmenter) step(frame []float32) (Phrase, bool) {
 	}
 
 	if s.quiet < s.endPause {
-		return Phrase{}, false
+		if end-s.start < s.maxPhrase {
+			return Phrase{}, false
+		}
+
+		return s.cut(), true
 	}
 
 	s.open = false
@@ -137,6 +157,32 @@ func (s *Segmenter) step(frame []float32) (Phrase, bool) {
 	}
 
 	return s.phrase(s.start, min(s.lastVoice+s.postRoll, end)), true
+}
+
+func (s *Segmenter) cut() Phrase {
+	best := len(s.notes) - 1
+	for i := best - 1; i >= max(0, len(s.notes)-s.cutReach); i-- {
+		if s.notes[i].level < s.notes[best].level {
+			best = i
+		}
+	}
+
+	at := s.noteAt + int64(best)*s.frame
+	p := s.phrase(s.start, at)
+
+	s.notes = append(s.notes[:0], s.notes[best:]...)
+	s.start, s.noteAt = at, at
+	s.voiced, s.quiet, s.lastVoice = 0, 0, at
+	for i, n := range s.notes {
+		s.quiet++
+		if n.voiced {
+			s.voiced++
+			s.quiet = 0
+			s.lastVoice = at + int64(i+1)*s.frame
+		}
+	}
+
+	return p
 }
 
 func (s *Segmenter) phrase(from, to int64) Phrase {

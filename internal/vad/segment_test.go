@@ -243,3 +243,102 @@ func TestPhraseTimesMatchItsSamples(t *testing.T) {
 		}
 	}
 }
+
+func TestSegmenterCutsLongSpeechInsideItsQuietestRecentPause(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(9.5)), silence(secs(0.1)), speech(secs(10.4)), silence(secs(1)))
+
+	got := run(in)
+	if len(got) != 2 {
+		t.Fatalf("got %d phrases, want the long speech cut in two", len(got))
+	}
+
+	if cut := got[0].End; cut < secs(10.5) || cut >= secs(10.6) {
+		t.Errorf("cut at %v, want inside the short pause, at or after 10.5s and before speech resumes at 10.6s", cut)
+	}
+
+	if got[1].Start != got[0].End {
+		t.Errorf("the second part starts at %v, the first ends at %v; want them to meet", got[1].Start, got[0].End)
+	}
+}
+
+func TestSegmenterCutsEndlessSpeechIntoPhrasesNoLongerThanTheMax(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(40)), silence(secs(1)))
+
+	got := run(in)
+	if len(got) < 4 {
+		t.Fatalf("got %d phrases from 40 s of speech, want at least 4", len(got))
+	}
+
+	var joined []float32
+	for i, p := range got {
+		if p.End-p.Start > Defaults().MaxPhrase {
+			t.Errorf("phrase %d lasts %v, longer than the %v allowed", i, p.End-p.Start, Defaults().MaxPhrase)
+		}
+
+		if i > 0 && p.Start != got[i-1].End {
+			t.Errorf("phrase %d starts at %v, the one before ends at %v", i, p.Start, got[i-1].End)
+		}
+
+		if i < len(got)-1 && p.End-p.Start < Defaults().MaxPhrase-cutReach {
+			t.Errorf("phrase %d was cut after only %v, want the cut within the last %v before the limit", i, p.End-p.Start, cutReach)
+		}
+
+		joined = append(joined, p.Samples...)
+	}
+
+	first, last := got[0].Start, got[len(got)-1].End
+	if !slices.Equal(joined, in[samplesIn(first):samplesIn(last)]) {
+		t.Error("the cut phrases put together are not the speech they were cut from")
+	}
+}
+
+func TestSegmenterCutsTheSameWhateverTheChunks(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(30)), silence(secs(1)))
+	whole := run(in)
+
+	r := rand.New(rand.NewPCG(9, 10))
+	s := New(rate, Defaults())
+	var pieces []Phrase
+	for rest := in; len(rest) > 0; {
+		n := min(r.IntN(5000), len(rest))
+		pieces = append(pieces, s.Feed(rest[:n])...)
+		rest = rest[n:]
+	}
+	pieces = append(pieces, s.Flush()...)
+
+	if len(pieces) != len(whole) {
+		t.Fatalf("got %d phrases in chunks and %d whole", len(pieces), len(whole))
+	}
+
+	for i := range whole {
+		if whole[i].Start != pieces[i].Start || whole[i].End != pieces[i].End {
+			t.Errorf("phrase %d: %v-%v whole, %v-%v in chunks", i, whole[i].Start, whole[i].End, pieces[i].Start, pieces[i].End)
+		}
+	}
+}
+
+func TestSegmenterCutsALongPhraseThatFollowsAShortOne(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(1)), silence(secs(1)), speech(secs(9.5)), silence(secs(0.1)), speech(secs(5)), silence(secs(1)))
+
+	got := run(in)
+	if len(got) != 3 {
+		t.Fatalf("got %d phrases, want the short one and the long one cut in two", len(got))
+	}
+
+	if cut := got[1].End; cut < secs(12.5) || cut >= secs(12.6) {
+		t.Errorf("cut at %v, want inside the short pause at 12.5s to 12.6s", cut)
+	}
+}
+
+func TestSegmenterKeepsTheSpeechAfterACutThatEndsRightThere(t *testing.T) {
+	in := signal(silence(secs(1)), speech(secs(9.5)), silence(secs(0.1)), speech(secs(2.2)), silence(secs(1)))
+
+	got := run(in)
+	if len(got) != 2 {
+		t.Fatalf("got %d phrases, want two", len(got))
+	}
+
+	if !near(got[1].End, secs(12.8)+postRoll) {
+		t.Errorf("the part after the cut ends at %v, want about %v with all its speech", got[1].End, secs(12.8)+postRoll)
+	}
+}
