@@ -15,7 +15,7 @@ func rendered(t *testing.T, f Frame, width int) *canvas {
 	}
 	t.Cleanup(r.close)
 
-	c, err := r.draw(f, width, 2000)
+	c, err := r.draw(f, layout{metrics: r.metrics, width: width, maxHeight: 2000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +41,10 @@ func brightIn(c *canvas, area rect) int {
 func TestStructsKeepTheLayoutWindowsExpects(t *testing.T) {
 	if n := unsafe.Sizeof(bitmapInfo{}); n != 44 {
 		t.Errorf("bitmapInfo is %d bytes, want 44", n)
+	}
+
+	if n := unsafe.Offsetof(bitmapInfo{}.colors); n != 40 {
+		t.Errorf("the bitmap header ends at %d, want the 40 bytes of BITMAPINFOHEADER", n)
 	}
 
 	if n := unsafe.Sizeof(winRect{}); n != 16 {

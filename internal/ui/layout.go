@@ -13,7 +13,7 @@ type rgb struct {
 }
 
 type metrics struct {
-	pad, gap, line, radius, dot, margin int
+	pad, gap, line, radius, dot, margin int // pixels at the screen's density
 }
 
 func scaledMetrics(dpi int) metrics {
@@ -81,7 +81,7 @@ func fade(age int) float64 {
 	return max(fadeFloor, 1-fadeStep*float64(age))
 }
 
-func plateHeight(h heights, m metrics) int {
+func (m metrics) plateHeight(h heights) int {
 	inner := h.original + h.translation
 	if h.original > 0 && h.translation > 0 {
 		inner += m.line
@@ -90,11 +90,31 @@ func plateHeight(h heights, m metrics) int {
 	return m.pad + inner + m.pad
 }
 
-func fitting(measured []heights, maxHeight int, m metrics) int {
-	total := m.dot
+type layout struct {
+	metrics
+	work      rect
+	width     int
+	maxHeight int
+}
+
+func layoutFor(work rect, m metrics) layout {
+	return layout{
+		metrics:   m,
+		work:      work,
+		width:     int(float64(work.w) * widthShare),
+		maxHeight: work.h - 2*m.margin,
+	}
+}
+
+func (l layout) textWidth() int {
+	return l.width - 2*l.pad
+}
+
+func (l layout) fitting(measured []heights) int {
+	total := l.dot
 	for i := len(measured) - 1; i >= 0; i-- {
-		total += m.gap + plateHeight(measured[i], m)
-		if total > maxHeight && i < len(measured)-1 {
+		total += l.gap + l.plateHeight(measured[i])
+		if total > l.maxHeight && i < len(measured)-1 {
 			return i + 1
 		}
 	}
@@ -102,28 +122,28 @@ func fitting(measured []heights, maxHeight int, m metrics) int {
 	return 0
 }
 
-func arrange(f Frame, measured []heights, width, maxHeight int, m metrics) scene {
+func (l layout) arrange(f Frame, measured []heights) scene {
 	s := scene{
-		width:    width,
-		dot:      rect{x: width - m.pad - m.dot, y: 0, w: m.dot, h: m.dot},
+		width:    l.width,
+		dot:      rect{x: l.width - l.pad - l.dot, y: 0, w: l.dot, h: l.dot},
 		dotColor: stateColor(f.State),
-		radius:   m.radius,
+		radius:   l.radius,
 	}
 
-	y := m.dot
-	for i := fitting(measured, maxHeight, m); i < len(f.Pairs); i++ {
+	y := l.dot
+	for i := l.fitting(measured); i < len(f.Pairs); i++ {
 		alpha := fade(len(f.Pairs) - 1 - i)
 		h := measured[i]
-		y += m.gap
+		y += l.gap
 
-		area := rect{x: 0, y: y, w: width, h: plateHeight(h, m)}
+		area := rect{x: 0, y: y, w: l.width, h: l.plateHeight(h)}
 		s.plates = append(s.plates, plate{area: area, alpha: plateAlpha})
 
-		inner := rect{x: m.pad, y: y + m.pad, w: width - 2*m.pad}
+		inner := rect{x: l.pad, y: y + l.pad, w: l.textWidth()}
 		if h.original > 0 {
 			inner.h = h.original
 			s.blocks = append(s.blocks, block{text: f.Pairs[i].Original, area: inner, color: originalColor, alpha: alpha})
-			inner.y += h.original + m.line
+			inner.y += h.original + l.line
 		}
 
 		if h.translation > 0 {
@@ -139,10 +159,6 @@ func arrange(f Frame, measured []heights, width, maxHeight int, m metrics) scene
 	return s
 }
 
-func widthFor(work rect) int {
-	return int(float64(work.w) * widthShare)
-}
-
-func place(work rect, width, height int, m metrics) rect {
-	return rect{x: work.x + m.margin, y: work.bottom() - m.margin - height, w: width, h: height}
+func (l layout) place(height int) rect {
+	return rect{x: l.work.x + l.margin, y: l.work.bottom() - l.margin - height, w: l.width, h: height}
 }
