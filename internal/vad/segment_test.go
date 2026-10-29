@@ -11,49 +11,59 @@ import (
 const rate = 16000
 
 type piece struct {
-	span time.Duration
-	kind string
-	gain float64
+	span   time.Duration
+	speech float64 // amplitude of the speech noise; zero for none
+	hum    bool
 }
 
-func silence(d time.Duration) piece            { return piece{d, "silence", 0} }
-func speech(d time.Duration) piece             { return piece{d, "speech", 0.3} }
-func murmur(d time.Duration) piece             { return piece{d, "speech", 0.00154} }
-func whisper(d time.Duration) piece            { return piece{d, "speech", 0.01} }
-func hum(d time.Duration) piece                { return piece{d, "hum", 0} }
-func speechOverHum(d time.Duration) piece      { return piece{d, "speech+hum", 0.3} }
+func silence(d time.Duration) piece            { return piece{span: d} }
+func speech(d time.Duration) piece             { return piece{span: d, speech: 0.3} }
+func murmur(d time.Duration) piece             { return piece{span: d, speech: 0.00154} }
+func whisper(d time.Duration) piece            { return piece{span: d, speech: 0.01} }
+func hum(d time.Duration) piece                { return piece{span: d, hum: true} }
+func speechOverHum(d time.Duration) piece      { return piece{span: d, speech: 0.3, hum: true} }
 func samplesIn(d time.Duration) int            { return int(d * rate / time.Second) }
 func near(got, want time.Duration) bool        { return (got - want).Abs() <= frameSpan }
 func secs(s float64) time.Duration             { return time.Duration(s * float64(time.Second)) }
 func noise(r *rand.Rand, gain float64) float32 { return float32(gain * (2*r.Float64() - 1)) }
 
-// Speech is modelled as noise with a syllable dip of 20 dB every 260 ms, ending loud,
-// because steady noise would sink into the floor the way a hum does.
 func signal(pieces ...piece) []float32 {
 	r := rand.New(rand.NewPCG(5, 6))
 	var out []float32
 	for _, p := range pieces {
-		n := samplesIn(p.span)
-		cycle, loud := samplesIn(260*time.Millisecond), samplesIn(200*time.Millisecond)
-		for i := range n {
-			var s float64
-			if p.kind == "hum" || p.kind == "speech+hum" {
-				s += 0.025 * math.Sqrt2 * math.Sin(2*math.Pi*100*float64(len(out))/rate)
-			}
-
-			if p.kind == "speech" || p.kind == "speech+hum" {
-				gain := p.gain
-				if i%cycle >= loud && i < n-loud {
-					gain /= 10
-				}
-				s += float64(noise(r, gain))
-			}
-
-			out = append(out, float32(s))
-		}
+		out = append(out, p.samples(r, len(out))...)
 	}
 
 	return out
+}
+
+func (p piece) samples(r *rand.Rand, start int) []float32 {
+	out := make([]float32, samplesIn(p.span))
+	for i := range out {
+		var s float64
+		if p.hum {
+			s += 0.025 * math.Sqrt2 * math.Sin(2*math.Pi*100*float64(start+i)/rate)
+		}
+
+		if p.speech > 0 {
+			s += float64(noise(r, p.gainAt(i, len(out))))
+		}
+
+		out[i] = float32(s)
+	}
+
+	return out
+}
+
+// Speech is modelled as noise with a syllable dip of 20 dB every 260 ms, ending loud,
+// because steady noise would sink into the floor the way a hum does.
+func (p piece) gainAt(i, n int) float64 {
+	cycle, loud := samplesIn(260*time.Millisecond), samplesIn(200*time.Millisecond)
+	if i%cycle >= loud && i < n-loud {
+		return p.speech / 10
+	}
+
+	return p.speech
 }
 
 func run(samples []float32) []Phrase {

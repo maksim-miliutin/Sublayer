@@ -9,10 +9,17 @@ import (
 
 var deviceRates = []int{8000, 22050, 44100, 48000, 96000}
 
-func tone(rate int, hz, seconds, amplitude float64) []float32 {
-	out := make([]float32, int(float64(rate)*seconds))
+type tone struct {
+	rate      int
+	hz        float64
+	seconds   float64
+	amplitude float64
+}
+
+func (t tone) samples() []float32 {
+	out := make([]float32, int(float64(t.rate)*t.seconds))
 	for n := range out {
-		out[n] = float32(amplitude * math.Sin(2*math.Pi*hz*float64(n)/float64(rate)))
+		out[n] = float32(t.amplitude * math.Sin(2*math.Pi*t.hz*float64(n)/float64(t.rate)))
 	}
 
 	return out
@@ -51,7 +58,7 @@ func TestResamplerKeepsSpeechTonesAtTheirLevel(t *testing.T) {
 				continue
 			}
 
-			out := newResampler(from, Rate).feed(tone(from, hz, 1.5, 0.5))
+			out := newResampler(from, Rate).feed(tone{rate: from, hz: hz, seconds: 1.5, amplitude: 0.5}.samples())
 
 			got := amplitudeAt(lastSecond(out), hz)
 			if math.Abs(got-0.5) > 0.001 {
@@ -74,7 +81,7 @@ func TestResamplerSuppressesWhatWouldFoldIntoSpeech(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		out := newResampler(c.from, Rate).feed(tone(c.from, c.hz, 1.5, 0.5))
+		out := newResampler(c.from, Rate).feed(tone{rate: c.from, hz: c.hz, seconds: 1.5, amplitude: 0.5}.samples())
 
 		if level := rms(lastSecond(out)); level > 0.0001 {
 			t.Errorf("%d Hz: a %v Hz tone of 0.5 left %.5f rms in the output", c.from, c.hz, level)

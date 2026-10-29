@@ -28,14 +28,23 @@ func riff(chunks ...[]byte) []byte {
 	return chunk("RIFF", body)
 }
 
-func fmtChunk(tag, channels uint16, rate uint32, bits uint16) []byte {
+type waveFormat struct {
+	tag      uint16
+	channels uint16
+	rate     uint32
+	bits     uint16
+}
+
+var plainPCM = waveFormat{tag: 1, channels: 1, rate: 16000, bits: 16}
+
+func (f waveFormat) chunk() []byte {
 	body := make([]byte, 16)
-	binary.LittleEndian.PutUint16(body[0:], tag)
-	binary.LittleEndian.PutUint16(body[2:], channels)
-	binary.LittleEndian.PutUint32(body[4:], rate)
-	binary.LittleEndian.PutUint32(body[8:], rate*uint32(channels)*uint32(bits)/8)
-	binary.LittleEndian.PutUint16(body[12:], channels*bits/8)
-	binary.LittleEndian.PutUint16(body[14:], bits)
+	binary.LittleEndian.PutUint16(body[0:], f.tag)
+	binary.LittleEndian.PutUint16(body[2:], f.channels)
+	binary.LittleEndian.PutUint32(body[4:], f.rate)
+	binary.LittleEndian.PutUint32(body[8:], f.rate*uint32(f.channels)*uint32(f.bits)/8)
+	binary.LittleEndian.PutUint16(body[12:], f.channels*f.bits/8)
+	binary.LittleEndian.PutUint16(body[14:], f.bits)
 
 	return chunk("fmt ", body)
 }
@@ -71,7 +80,7 @@ func TestDecodeReadsBackAnEmptyRecording(t *testing.T) {
 }
 
 func TestDecodeSkipsChunksItDoesNotNeed(t *testing.T) {
-	file := riff(fmtChunk(1, 1, 16000, 16), chunk("LIST", []byte("odd")), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
+	file := riff(plainPCM.chunk(), chunk("LIST", []byte("odd")), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
 
 	got, _, err := Decode(file)
 	if err != nil {
@@ -84,7 +93,7 @@ func TestDecodeSkipsChunksItDoesNotNeed(t *testing.T) {
 }
 
 func TestDecodeTakesWhatThereIsOfACutOffData(t *testing.T) {
-	file := riff(fmtChunk(1, 1, 16000, 16), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
+	file := riff(plainPCM.chunk(), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
 	binary.LittleEndian.PutUint32(file[len(file)-8:], 1000)
 
 	got, _, err := Decode(file)
@@ -100,7 +109,7 @@ func TestDecodeTakesWhatThereIsOfACutOffData(t *testing.T) {
 // The bug this guards: a streamed file writes its data size as all ones, which turned
 // negative in a 32-bit int and the slice of the chunk panicked.
 func TestDecodeTakesTheRestOfTheFileForAnEndlessDataSize(t *testing.T) {
-	file := riff(fmtChunk(1, 1, 16000, 16), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
+	file := riff(plainPCM.chunk(), chunk("data", []byte{0x00, 0x40, 0x00, 0xc0}))
 	binary.LittleEndian.PutUint32(file[len(file)-8:], 0xffffffff)
 
 	got, _, err := Decode(file)
@@ -114,7 +123,7 @@ func TestDecodeTakesTheRestOfTheFileForAnEndlessDataSize(t *testing.T) {
 }
 
 func TestDecodeKeepsTheLoudestForeignSampleInRange(t *testing.T) {
-	file := riff(fmtChunk(1, 1, 16000, 16), chunk("data", []byte{0x00, 0x80, 0xff, 0x7f}))
+	file := riff(plainPCM.chunk(), chunk("data", []byte{0x00, 0x80, 0xff, 0x7f}))
 
 	got, _, err := Decode(file)
 	if err != nil {
@@ -127,17 +136,17 @@ func TestDecodeKeepsTheLoudestForeignSampleInRange(t *testing.T) {
 }
 
 func TestDecodeRefusesWhatItCannotRead(t *testing.T) {
-	data := chunk("data", []byte{0, 0})
+	pcm := chunk("data", []byte{0, 0})
 	cases := map[string][]byte{
 		"empty":      nil,
-		"not riff":   append([]byte("RIFX"), riff(fmtChunk(1, 1, 16000, 16), data)[4:]...),
-		"stereo":     riff(fmtChunk(1, 2, 16000, 16), data),
-		"8-bit":      riff(fmtChunk(1, 1, 16000, 8), data),
-		"float":      riff(fmtChunk(3, 1, 16000, 32), data),
-		"no format":  riff(data),
-		"no data":    riff(fmtChunk(1, 1, 16000, 16)),
-		"short fmt":  riff(chunk("fmt ", []byte{1, 0, 1, 0}), data),
-		"no rate":    riff(fmtChunk(1, 1, 0, 16), data),
+		"not riff":   append([]byte("RIFX"), riff(plainPCM.chunk(), pcm)[4:]...),
+		"stereo":     riff(waveFormat{tag: 1, channels: 2, rate: 16000, bits: 16}.chunk(), pcm),
+		"8-bit":      riff(waveFormat{tag: 1, channels: 1, rate: 16000, bits: 8}.chunk(), pcm),
+		"float":      riff(waveFormat{tag: 3, channels: 1, rate: 16000, bits: 32}.chunk(), pcm),
+		"no format":  riff(pcm),
+		"no data":    riff(plainPCM.chunk()),
+		"short fmt":  riff(chunk("fmt ", []byte{1, 0, 1, 0}), pcm),
+		"no rate":    riff(waveFormat{tag: 1, channels: 1, rate: 0, bits: 16}.chunk(), pcm),
 		"chunk lies": riff(chunk("fmt ", make([]byte, 16)))[:20],
 	}
 

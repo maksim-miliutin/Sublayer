@@ -3,8 +3,6 @@ package capture
 import "math"
 
 const (
-	Rate = 16000 // samples per second of every chunk a Source hands out
-
 	zeroCrossings = 16
 	passband      = 0.9
 )
@@ -18,23 +16,23 @@ type resampler struct {
 }
 
 func newResampler(from, to int) *resampler {
-	g := gcd(from, to)
 	cutoff := passband * 0.5 * math.Min(1, float64(to)/float64(from))
 	reach := zeroCrossings / (2 * cutoff)
-	half := int(math.Ceil(reach))
+	filter := lowpass{half: int(math.Ceil(reach)), cutoff: cutoff, reach: reach}
 
+	g := gcd(from, to)
 	up := to / g
 	phases := make([][]float32, up)
 	for f := range phases {
-		phases[f] = kernel(float64(f)/float64(up), half, cutoff, reach)
+		phases[f] = filter.kernel(float64(f) / float64(up))
 	}
 
 	return &resampler{
 		up:     int64(up),
 		down:   int64(from / g),
 		phases: phases,
-		held:   make([]float32, half),
-		start:  -int64(half),
+		held:   make([]float32, filter.half),
+		start:  -int64(filter.half),
 	}
 }
 
@@ -70,12 +68,18 @@ func (r *resampler) feed(in []float32) []float32 {
 	return out
 }
 
-func kernel(frac float64, half int, cutoff, reach float64) []float32 {
-	weights := make([]float64, 2*half)
+type lowpass struct {
+	half   int
+	cutoff float64 // cycles per input sample
+	reach  float64 // input samples the window spans on either side
+}
+
+func (l lowpass) kernel(frac float64) []float32 {
+	weights := make([]float64, 2*l.half)
 	var sum float64
 	for j := range weights {
-		d := frac + float64(half-1-j)
-		weights[j] = sinc(2*cutoff*d) * blackman(d/reach)
+		d := frac + float64(l.half-1-j)
+		weights[j] = sinc(2*l.cutoff*d) * blackman(d/l.reach)
 		sum += weights[j]
 	}
 
