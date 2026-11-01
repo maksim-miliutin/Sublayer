@@ -13,8 +13,9 @@ unless you turn saving on. Tell the people you talk to that subtitles are on.
 ## Requirements
 
 - Windows 10 or 11, x64. Linux and macOS come later.
-- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` with a model,
-  such as `ggml-large-v3-turbo.bin` on a GPU or `ggml-small.bin` on a CPU.
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` listening on
+  `127.0.0.1:8178`, with a model such as `ggml-large-v3-turbo.bin` on a GPU or
+  `ggml-small.bin` on a CPU.
 - [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) running locally.
 - Go, the version named in `go.mod`, to build.
 

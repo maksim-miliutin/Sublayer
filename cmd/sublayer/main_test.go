@@ -9,7 +9,21 @@ import (
 )
 
 func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
-	for _, args := range [][]string{nil, {"record"}, {"record", "a.wav", "b.wav"}, {"listen", "a.wav", "b.wav"}, {"overlay", "extra"}, {"play"}} {
+	refused := [][]string{
+		nil,
+		{"record"},
+		{"record", "a.wav", "b.wav"},
+		{"listen", "a.wav", "b.wav"},
+		{"listen", "-lang", "de"},
+		{"listen", "-lang", "french"},
+		{"listen", "-lang"},
+		{"listen", "-loud"},
+		{"listen", "a.wav", "-lang", "fr"},
+		{"overlay", "extra"},
+		{"play"},
+	}
+
+	for _, args := range refused {
 		if err := run(args); !errors.Is(err, errUsage) {
 			t.Errorf("%q gave %v, want the usage", args, err)
 		}
