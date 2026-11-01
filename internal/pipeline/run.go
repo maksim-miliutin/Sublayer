@@ -19,7 +19,8 @@ type Config struct {
 	Phrases     vad.Config
 	Transcriber stt.Transcriber
 	Translator  translate.Translator
-	Waiting     int // phrases kept waiting while one is recognized and translated; zero keeps every one
+	Waiting     int              // phrases kept waiting while one is recognized and translated; zero keeps every one
+	Recognizing func(vad.Phrase) // told as each phrase goes to recognition; nil when nobody asks
 	Report      func(Result)
 }
 
@@ -37,6 +38,10 @@ type Timing struct {
 }
 
 func Run(ctx context.Context, c Config) error {
+	if c.Recognizing == nil {
+		c.Recognizing = func(vad.Phrase) {}
+	}
+
 	waiting := newQueue[vad.Phrase](c.Waiting)
 
 	subtitled := make(chan struct{})
@@ -75,6 +80,7 @@ func subtitle(ctx context.Context, c Config, waiting *queue[vad.Phrase]) {
 			return
 		}
 
+		c.Recognizing(p)
 		c.Report(pair(ctx, c, p))
 	}
 }
