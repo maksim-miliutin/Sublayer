@@ -9,6 +9,7 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
+	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
@@ -47,21 +48,31 @@ func TestListenTakesALanguageAndAFileToHearInstead(t *testing.T) {
 	}
 }
 
-func TestDescribeShowsAPhrasesTimesHowLongWhisperTookAndTheText(t *testing.T) {
+func TestDescribePutsTheTranslationUnderTheTextOfAPhrase(t *testing.T) {
 	phrase := vad.Phrase{Start: 1800 * time.Millisecond, End: 4400 * time.Millisecond}
+	took := pipeline.Timing{Recognize: 412 * time.Millisecond, Translate: 127 * time.Millisecond}
 	cases := []struct {
 		result pipeline.Result
 		want   string
 	}{
-		{pipeline.Result{Phrase: phrase, Text: "Bonjour à tous.", Took: 412 * time.Millisecond}, "00:01.80  00:04.40   2.60 s  (0.41 s)  Bonjour à tous."},
-		{pipeline.Result{Phrase: phrase, Took: 300 * time.Millisecond}, "00:01.80  00:04.40   2.60 s  (0.30 s)"},
+		{
+			pipeline.Result{Phrase: phrase, Text: "Bonjour à tous.", Translation: "Всем здравствуйте.", Took: took},
+			"00:01.80  00:04.40   2.60 s  (0.41 s)  Bonjour à tous.\n" +
+				"                             (0.13 s)  Всем здравствуйте.",
+		},
+		{
+			pipeline.Result{Phrase: phrase, Text: "Bonjour à tous.", Took: took, Err: translate.ErrNoAnswer},
+			"00:01.80  00:04.40   2.60 s  (0.41 s)  Bonjour à tous.\n" +
+				"                             " + translate.ErrNoAnswer.Error(),
+		},
+		{pipeline.Result{Phrase: phrase, Took: pipeline.Timing{Recognize: 300 * time.Millisecond}}, "00:01.80  00:04.40   2.60 s  (0.30 s)"},
 		{pipeline.Result{Phrase: phrase, Err: pipeline.ErrSkipped}, "00:01.80  00:04.40   2.60 s  " + pipeline.ErrSkipped.Error()},
-		{pipeline.Result{Phrase: phrase, Text: "Oui.", Err: stt.ErrNoAnswer}, "00:01.80  00:04.40   2.60 s  " + stt.ErrNoAnswer.Error()},
+		{pipeline.Result{Phrase: phrase, Err: stt.ErrNoAnswer}, "00:01.80  00:04.40   2.60 s  " + stt.ErrNoAnswer.Error()},
 	}
 
 	for _, c := range cases {
 		if got := describe(c.result); got != c.want {
-			t.Errorf("got %q, want %q", got, c.want)
+			t.Errorf("got\n%s\nwant\n%s", got, c.want)
 		}
 	}
 }

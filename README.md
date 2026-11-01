@@ -16,7 +16,9 @@ unless you turn saving on. Tell the people you talk to that subtitles are on.
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` listening on
   `127.0.0.1:8178`, with a model such as `ggml-large-v3-turbo.bin` on a GPU or
   `ggml-small.bin` on a CPU.
-- [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) running locally.
+- [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) listening on
+  `127.0.0.1:5000`, with the `en→ru` model, and `fr→en` too for French, which is
+  translated into Russian through English.
 - Go, the version named in `go.mod`, to build.
 
 ## Build
