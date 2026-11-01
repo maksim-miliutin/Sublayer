@@ -368,3 +368,25 @@ func TestRunTranslatesNothingItDidNotHear(t *testing.T) {
 		t.Errorf("got %v and %d translations, want 2 phrases, no text from the failure, nothing to translate", results, asked)
 	}
 }
+
+func TestRunTellsOfEachPhraseAsItGoesToRecognition(t *testing.T) {
+	var told []string
+	results, _ := run(t, Config{
+		Source: &source{pieces: [][]float32{threePhrases()}, end: capture.ErrClosed},
+		Transcriber: transcriber(func(speech []float32, r int) (string, error) {
+			told = append(told, "recognize "+strconv.Itoa(len(speech)))
+
+			return lengthOf(speech, r)
+		}),
+		Recognizing: func(p vad.Phrase) { told = append(told, "going "+strconv.Itoa(len(p.Samples))) },
+	})
+
+	var want []string
+	for _, r := range results {
+		want = append(want, "going "+r.Text, "recognize "+r.Text)
+	}
+
+	if len(results) != 3 || !slices.Equal(told, want) {
+		t.Errorf("got %v, want each of the 3 phrases told about just before it is recognized: %v", told, want)
+	}
+}
