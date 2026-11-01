@@ -26,3 +26,16 @@ unless you turn saving on. Tell the people you talk to that subtitles are on.
 ```
 go build ./cmd/sublayer
 ```
+
+## Run
+
+Start whisper-server and LibreTranslate, then name the language the other side speaks,
+`fr` or `en`, or leave `auto` to let each phrase tell:
+
+```
+sublayer -lang fr
+```
+
+The subtitles appear at the bottom left over every window, and clicks go through them.
+Press Ctrl+C in the console to stop. `sublayer listen` prints the same pairs in the
+console alone, and `sublayer listen file.wav` reads a recording instead of the speakers.

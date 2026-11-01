@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var errUsage = errors.New("usage: sublayer record <file.wav> | sublayer listen [-lang " + strings.Join(languages, "|") + "] [file.wav] | sublayer overlay")
+var errUsage = fmt.Errorf("usage: sublayer %[1]s | sublayer record <file.wav> | sublayer listen %[1]s [file.wav] | sublayer overlay", "[-lang "+strings.Join(languages, "|")+"]")
 
 func main() {
 	err := run(os.Args[1:])
@@ -26,9 +26,11 @@ func main() {
 
 func run(args []string) error {
 	switch {
+	case len(args) == 0 || strings.HasPrefix(args[0], "-"):
+		return subtitles(args)
 	case len(args) == 2 && args[0] == "record":
 		return record(args[1])
-	case len(args) >= 1 && args[0] == "listen":
+	case args[0] == "listen":
 		return listen(args[1:])
 	case len(args) == 1 && args[0] == "overlay":
 		return overlay()
