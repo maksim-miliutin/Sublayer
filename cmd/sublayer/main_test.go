@@ -10,7 +10,10 @@ import (
 
 func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	refused := [][]string{
-		nil,
+		{"a.wav"},
+		{"-loud"},
+		{"-lang", "de"},
+		{"-lang", "fr", "a.wav"},
 		{"record"},
 		{"record", "a.wav", "b.wav"},
 		{"listen", "a.wav", "b.wav"},
