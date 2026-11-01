@@ -1,9 +1,14 @@
 package main
 
 import (
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/maksim-miliutin/Sublayer/internal/capture"
+	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
+	"github.com/maksim-miliutin/Sublayer/internal/stt"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
@@ -23,10 +28,53 @@ func TestStampWritesMinutesSecondsAndHundredths(t *testing.T) {
 	}
 }
 
-func TestDescribeShowsWhereAPhraseStartsEndsAndHowLongItIs(t *testing.T) {
-	p := vad.Phrase{Start: 1800 * time.Millisecond, End: 4400 * time.Millisecond}
+func TestListenTakesALanguageAndAFileToHearInstead(t *testing.T) {
+	cases := []struct {
+		args []string
+		want hearing
+	}{
+		{nil, hearing{language: "auto"}},
+		{[]string{"a.wav"}, hearing{language: "auto", file: "a.wav"}},
+		{[]string{"-lang", "fr"}, hearing{language: "fr"}},
+		{[]string{"-lang=en", "a.wav"}, hearing{language: "en", file: "a.wav"}},
+	}
 
-	if got, want := describe(p), "00:01.80  00:04.40   2.60 s"; got != want {
-		t.Errorf("got %q, want %q", got, want)
+	for _, c := range cases {
+		got, err := parseListen(c.args)
+		if err != nil || got != c.want {
+			t.Errorf("%q gave %+v, %v; want %+v", c.args, got, err, c.want)
+		}
+	}
+}
+
+func TestDescribeShowsAPhrasesTimesHowLongWhisperTookAndTheText(t *testing.T) {
+	phrase := vad.Phrase{Start: 1800 * time.Millisecond, End: 4400 * time.Millisecond}
+	cases := []struct {
+		result pipeline.Result
+		want   string
+	}{
+		{pipeline.Result{Phrase: phrase, Text: "Bonjour à tous.", Took: 412 * time.Millisecond}, "00:01.80  00:04.40   2.60 s  (0.41 s)  Bonjour à tous."},
+		{pipeline.Result{Phrase: phrase, Took: 300 * time.Millisecond}, "00:01.80  00:04.40   2.60 s  (0.30 s)"},
+		{pipeline.Result{Phrase: phrase, Err: pipeline.ErrSkipped}, "00:01.80  00:04.40   2.60 s  " + pipeline.ErrSkipped.Error()},
+		{pipeline.Result{Phrase: phrase, Text: "Oui.", Err: stt.ErrNoAnswer}, "00:01.80  00:04.40   2.60 s  " + stt.ErrNoAnswer.Error()},
+	}
+
+	for _, c := range cases {
+		if got := describe(c.result); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
+	}
+}
+
+func TestARecordingHandsOutAllItsSamplesOnceAndThenEnds(t *testing.T) {
+	r := &recording{samples: []float32{1, 2, 3}}
+
+	samples, err := r.Read()
+	if err != nil || !slices.Equal(samples, []float32{1, 2, 3}) {
+		t.Fatalf("first read gave %v, %v; want 1 2 3", samples, err)
+	}
+
+	if samples, err := r.Read(); !errors.Is(err, capture.ErrClosed) {
+		t.Errorf("second read gave %v, %v; want the end", samples, err)
 	}
 }

@@ -17,6 +17,9 @@ func closeOnInterrupt(c io.Closer) (stop func()) {
 	go func() {
 		select {
 		case <-interrupt:
+			// The first Ctrl+C lets the command finish what it has; the second is left to
+			// end the program the usual way, should finishing hang.
+			signal.Stop(interrupt)
 			c.Close()
 		case <-finished:
 		}
