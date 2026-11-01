@@ -7,6 +7,7 @@ import (
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
+	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
@@ -17,29 +18,36 @@ type Config struct {
 	Rate        int // samples per second the source hands out
 	Phrases     vad.Config
 	Transcriber stt.Transcriber
-	Waiting     int // phrases kept waiting while one is recognized; zero keeps every one
+	Translator  translate.Translator
+	Waiting     int // phrases kept waiting while one is recognized and translated; zero keeps every one
 	Report      func(Result)
 }
 
 type Result struct {
-	Phrase vad.Phrase
-	Text   string
-	Took   time.Duration
-	Err    error
+	Phrase      vad.Phrase
+	Text        string
+	Translation string
+	Took        Timing
+	Err         error
+}
+
+type Timing struct {
+	Recognize time.Duration
+	Translate time.Duration
 }
 
 func Run(ctx context.Context, c Config) error {
 	waiting := newQueue[vad.Phrase](c.Waiting)
 
-	recognized := make(chan struct{})
+	subtitled := make(chan struct{})
 	go func() {
-		recognize(ctx, c, waiting)
-		close(recognized)
+		subtitle(ctx, c, waiting)
+		close(subtitled)
 	}()
 
 	err := segment(c, waiting)
 	waiting.close()
-	<-recognized
+	<-subtitled
 
 	return err
 }
@@ -58,7 +66,7 @@ func segment(c Config, waiting *queue[vad.Phrase]) error {
 	}
 }
 
-func recognize(ctx context.Context, c Config, waiting *queue[vad.Phrase]) {
+func subtitle(ctx context.Context, c Config, waiting *queue[vad.Phrase]) {
 	for {
 		p, skipped, ok := waiting.pop()
 		skip(c.Report, skipped)
@@ -67,10 +75,36 @@ func recognize(ctx context.Context, c Config, waiting *queue[vad.Phrase]) {
 			return
 		}
 
-		began := time.Now()
-		text, err := c.Transcriber.Transcribe(ctx, p.Samples, c.Rate)
-		c.Report(Result{Phrase: p, Text: text, Took: time.Since(began), Err: err})
+		c.Report(pair(ctx, c, p))
 	}
+}
+
+func pair(ctx context.Context, c Config, p vad.Phrase) Result {
+	r := Result{Phrase: p}
+
+	began := time.Now()
+	text, err := c.Transcriber.Transcribe(ctx, p.Samples, c.Rate)
+	r.Took.Recognize = time.Since(began)
+
+	if err != nil || text == "" {
+		r.Err = err
+
+		return r
+	}
+	r.Text = text
+
+	began = time.Now()
+	translation, err := c.Translator.Translate(ctx, text)
+	r.Took.Translate = time.Since(began)
+
+	if err != nil {
+		r.Err = err
+
+		return r
+	}
+	r.Translation = translation
+
+	return r
 }
 
 func skip(report func(Result), phrases []vad.Phrase) {

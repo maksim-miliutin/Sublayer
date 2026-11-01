@@ -12,6 +12,7 @@ import (
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
+	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
@@ -65,6 +66,16 @@ func lengthOf(speech []float32, _ int) (string, error) {
 	return strconv.Itoa(len(speech)), nil
 }
 
+type translator func(text string) (string, error)
+
+func (f translator) Translate(_ context.Context, text string) (string, error) {
+	return f(text)
+}
+
+func marked(text string) (string, error) {
+	return "[ru] " + text, nil
+}
+
 func run(t *testing.T, c Config) ([]Result, error) {
 	t.Helper()
 
@@ -73,6 +84,10 @@ func run(t *testing.T, c Config) ([]Result, error) {
 	c.Rate = rate
 	if c.Phrases == (vad.Config{}) {
 		c.Phrases = vad.Defaults()
+	}
+
+	if c.Translator == nil {
+		c.Translator = translator(marked)
 	}
 
 	err := Run(context.Background(), c)
@@ -261,17 +276,95 @@ func TestRunReportsAFailedRecognitionAndGoesOnToTheNext(t *testing.T) {
 	}
 }
 
-func TestRunTellsHowLongEachRecognitionTook(t *testing.T) {
-	results, _ := run(t, Config{
-		Source: &source{pieces: [][]float32{slices.Concat(quiet(0.5), voice(0.6), quiet(1))}, end: capture.ErrClosed},
-		Transcriber: transcriber(func([]float32, int) (string, error) {
-			time.Sleep(30 * time.Millisecond)
+func sleeping(d time.Duration, said string) func() (string, error) {
+	return func() (string, error) {
+		time.Sleep(d)
 
-			return "Oui.", nil
+		return said, nil
+	}
+}
+
+func TestRunTimesRecognizingAndTranslatingEachOnItsOwn(t *testing.T) {
+	cases := []struct {
+		recognize, translate time.Duration
+	}{
+		{100 * time.Millisecond, 0},
+		{0, 100 * time.Millisecond},
+	}
+
+	for _, c := range cases {
+		recognize, translate := sleeping(c.recognize, "Oui."), sleeping(c.translate, "Да.")
+		results, _ := run(t, Config{
+			Source:      &source{pieces: [][]float32{slices.Concat(quiet(0.5), voice(0.6), quiet(1))}, end: capture.ErrClosed},
+			Transcriber: transcriber(func([]float32, int) (string, error) { return recognize() }),
+			Translator:  translator(func(string) (string, error) { return translate() }),
+		})
+
+		if len(results) != 1 {
+			t.Fatalf("got %d results, want 1", len(results))
+		}
+
+		if took := results[0].Took; !near(took.Recognize, c.recognize) || !near(took.Translate, c.translate) {
+			t.Errorf("recognizing for %v and translating for %v were timed as %v and %v", c.recognize, c.translate, took.Recognize, took.Translate)
+		}
+	}
+}
+
+func near(got, want time.Duration) bool {
+	return got >= want && got < want+100*time.Millisecond
+}
+
+func TestRunTranslatesEveryPhraseItRecognized(t *testing.T) {
+	results, _ := run(t, Config{
+		Source:      &source{pieces: [][]float32{threePhrases()}, end: capture.ErrClosed},
+		Transcriber: transcriber(lengthOf),
+	})
+
+	if len(results) != 3 {
+		t.Fatalf("got %d results, want 3", len(results))
+	}
+
+	for i, r := range results {
+		if want, _ := marked(r.Text); r.Err != nil || r.Translation != want {
+			t.Errorf("phrase %d, %q, was translated as %q, %v; want %q", i, r.Text, r.Translation, r.Err, want)
+		}
+	}
+}
+
+func TestRunKeepsTheTextOfAPhraseItCouldNotTranslate(t *testing.T) {
+	results, _ := run(t, Config{
+		Source:      &source{pieces: [][]float32{slices.Concat(quiet(0.5), voice(0.6), quiet(1))}, end: capture.ErrClosed},
+		Transcriber: transcriber(func([]float32, int) (string, error) { return "Oui.", nil }),
+		Translator:  translator(func(string) (string, error) { return "Да?", translate.ErrNoAnswer }),
+	})
+
+	if len(results) != 1 || results[0].Text != "Oui." || results[0].Translation != "" || !errors.Is(results[0].Err, translate.ErrNoAnswer) {
+		t.Errorf("got %v, want Oui. kept beside the failed translation and nothing that failure said", results)
+	}
+}
+
+func TestRunTranslatesNothingItDidNotHear(t *testing.T) {
+	audio := slices.Concat(quiet(0.5), voice(0.6), quiet(1), voice(0.6), quiet(1))
+
+	calls, asked := 0, 0
+	results, _ := run(t, Config{
+		Source: &source{pieces: [][]float32{audio}, end: capture.ErrClosed},
+		Transcriber: transcriber(func([]float32, int) (string, error) {
+			calls++
+			if calls == 1 {
+				return "", nil
+			}
+
+			return "Oui?", stt.ErrNoAnswer
+		}),
+		Translator: translator(func(string) (string, error) {
+			asked++
+
+			return "Да.", nil
 		}),
 	})
 
-	if len(results) != 1 || results[0].Took < 30*time.Millisecond {
-		t.Errorf("got %v, want one result that took at least the 30 ms spent", results)
+	if len(results) != 2 || asked != 0 || results[1].Text != "" {
+		t.Errorf("got %v and %d translations, want 2 phrases, no text from the failure, nothing to translate", results, asked)
 	}
 }

@@ -8,19 +8,23 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
+	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 	"github.com/maksim-miliutin/Sublayer/internal/wav"
 )
 
 const (
 	whisperURL     = "http://127.0.0.1:8178/inference"
-	whisperTimeout = 30 * time.Second
+	libreURL       = "http://127.0.0.1:5000/translate"
+	serverTimeout  = 30 * time.Second
 	waitingPhrases = 3
+	translateInto  = "ru"
 )
 
 // whisper-server takes a language it does not know without complaint and hears nonsense,
@@ -84,9 +88,9 @@ func listenSpeakers(language string) error {
 	defer source.Close()
 	defer closeOnInterrupt(source)()
 
-	fmt.Fprintln(os.Stderr, "listening to the speakers; each phrase shows its start, end, length, the time whisper took and the text; press Ctrl+C to stop")
+	fmt.Fprintln(os.Stderr, "listening to the speakers; each phrase shows its times and text with the translation under it, and in brackets how long each took; press Ctrl+C to stop")
 
-	return recognize(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, language)
+	return interpret(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, language)
 }
 
 func listenFile(path, language string) error {
@@ -100,22 +104,27 @@ func listenFile(path, language string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	return recognize(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, language)
+	return interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, language)
 }
 
-func recognize(c pipeline.Config, language string) error {
-	// Unlike the default client this one never takes a proxy from the environment, so
-	// speech goes to whisper-server and nowhere else, wherever the server runs.
-	client := &http.Client{Transport: &http.Transport{}, Timeout: whisperTimeout}
+func interpret(c pipeline.Config, language string) error {
+	client := localClient()
 
 	c.Phrases = vad.Defaults()
 	c.Transcriber = stt.NewWhisper(stt.Config{URL: whisperURL, Language: language}, client)
+	c.Translator = translate.NewLibre(translate.Config{URL: libreURL, Source: language, Target: translateInto}, client)
 
 	return unlessClosed(pipeline.Run(context.Background(), c))
 }
 
+// Unlike the default client this one never takes a proxy from the environment, so speech
+// and its text go to the servers named here and nowhere else, wherever those servers run.
+func localClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{}, Timeout: serverTimeout}
+}
+
 func show(r pipeline.Result) {
-	if r.Err != nil {
+	if r.Text == "" && r.Err != nil {
 		fmt.Fprintln(os.Stderr, describe(r))
 
 		return
@@ -128,16 +137,27 @@ func describe(r pipeline.Result) string {
 	p := r.Phrase
 	times := fmt.Sprintf("%s  %s  %5.2f s", stamp(p.Start), stamp(p.End), (p.End - p.Start).Seconds())
 
-	if r.Err != nil {
-		return times + "  " + r.Err.Error()
-	}
-
-	heard := fmt.Sprintf("%s  (%.2f s)", times, r.Took.Seconds())
 	if r.Text == "" {
-		return heard
+		return times + "  " + unheard(r)
 	}
 
-	return heard + "  " + r.Text
+	return fmt.Sprintf("%s  (%.2f s)  %s\n%s  %s", times, r.Took.Recognize.Seconds(), r.Text, strings.Repeat(" ", len(times)), translated(r))
+}
+
+func unheard(r pipeline.Result) string {
+	if r.Err != nil {
+		return r.Err.Error()
+	}
+
+	return fmt.Sprintf("(%.2f s)", r.Took.Recognize.Seconds())
+}
+
+func translated(r pipeline.Result) string {
+	if r.Err != nil {
+		return r.Err.Error()
+	}
+
+	return fmt.Sprintf("(%.2f s)  %s", r.Took.Translate.Seconds(), r.Translation)
 }
 
 func stamp(d time.Duration) string {
