@@ -8,6 +8,7 @@ import (
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
 	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
@@ -34,16 +35,67 @@ func TestListenTakesALanguageAndAFileToHearInstead(t *testing.T) {
 		args []string
 		want hearing
 	}{
-		{nil, hearing{language: "auto"}},
-		{[]string{"a.wav"}, hearing{language: "auto", file: "a.wav"}},
+		{nil, hearing{}},
+		{[]string{"a.wav"}, hearing{file: "a.wav"}},
 		{[]string{"-lang", "fr"}, hearing{language: "fr"}},
 		{[]string{"-lang=en", "a.wav"}, hearing{language: "en", file: "a.wav"}},
+		{[]string{"-lang", "auto"}, hearing{language: "auto"}},
 	}
 
 	for _, c := range cases {
 		got, err := parseListen(c.args)
 		if err != nil || got != c.want {
 			t.Errorf("%q gave %+v, %v; want %+v", c.args, got, err, c.want)
+		}
+	}
+}
+
+func TestTheLanguageAskedForWinsOverTheSettings(t *testing.T) {
+	s := settings.Defaults()
+	s.Language = "en"
+
+	if got := (hearing{language: "fr"}).over(s); got.Language != "fr" {
+		t.Errorf("asked for fr over en, got %s", got.Language)
+	}
+
+	if got := (hearing{}).over(s); got != s {
+		t.Errorf("asked for nothing, got %+v, want the settings %+v", got, s)
+	}
+}
+
+func TestSettleLaysTheAskedLanguageOverTheSettings(t *testing.T) {
+	inEnglish := machine{settings: func() (settings.Settings, error) {
+		s := settings.Defaults()
+		s.Language = "en"
+
+		return s, nil
+	}}
+
+	if _, s, err := settle([]string{"-lang", "fr"}, inEnglish); err != nil || s.Language != "fr" {
+		t.Errorf("asked for fr over en, got %q, %v", s.Language, err)
+	}
+
+	if _, s, err := settle(nil, inEnglish); err != nil || s.Language != "en" {
+		t.Errorf("asked for nothing, got %q, %v; want the settings' en", s.Language, err)
+	}
+
+	if _, _, err := settle([]string{"-lang", "de"}, inEnglish); !errors.Is(err, errUsage) {
+		t.Errorf("asked for de, got %v, want the usage", err)
+	}
+}
+
+func TestEndpointNamesTheServerPathAtItsAddress(t *testing.T) {
+	cases := []struct {
+		address, path, want string
+	}{
+		{"127.0.0.1:8178", "/inference", "http://127.0.0.1:8178/inference"},
+		{"[::1]:5000", "/translate", "http://[::1]:5000/translate"},
+		{"gpu-box.local:8178", "/inference", "http://gpu-box.local:8178/inference"},
+	}
+
+	for _, c := range cases {
+		if got := endpoint(settings.Server{Address: c.address}, c.path); got != c.want {
+			t.Errorf("endpoint(%s, %s) = %s, want %s", c.address, c.path, got, c.want)
 		}
 	}
 }

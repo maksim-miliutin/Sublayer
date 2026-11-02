@@ -1,0 +1,145 @@
+package settings
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/maksim-miliutin/Sublayer/internal/vad"
+)
+
+var ErrInvalid = errors.New("settings: the file holds no settings Sublayer can use")
+
+var Languages = []string{"auto", "fr", "en"}
+
+var Targets = []string{"ru", "en"}
+
+const (
+	fewestPairs = 3
+	mostPairs   = 6
+)
+
+type Settings struct {
+	Language string  `json:"language"`
+	Target   string  `json:"target"`
+	Whisper  Server  `json:"whisper"`
+	Libre    Server  `json:"libretranslate"`
+	Pairs    int     `json:"pairs"`
+	Phrases  Phrases `json:"phrases"`
+}
+
+type Server struct {
+	Address string `json:"address"`
+}
+
+type Phrases struct {
+	MinSpeechMS int `json:"min_speech_ms"`
+	EndPauseMS  int `json:"end_pause_ms"`
+	MaxPhraseMS int `json:"max_phrase_ms"`
+}
+
+func Defaults() Settings {
+	cut := vad.Defaults()
+
+	return Settings{
+		Language: "auto",
+		Target:   "ru",
+		Whisper:  Server{Address: "127.0.0.1:8178"},
+		Libre:    Server{Address: "127.0.0.1:5000"},
+		Pairs:    4,
+		Phrases: Phrases{
+			MinSpeechMS: int(cut.MinSpeech / time.Millisecond),
+			EndPauseMS:  int(cut.EndPause / time.Millisecond),
+			MaxPhraseMS: int(cut.MaxPhrase / time.Millisecond),
+		},
+	}
+}
+
+func (p Phrases) Config() vad.Config {
+	return vad.Config{
+		MinSpeech: time.Duration(p.MinSpeechMS) * time.Millisecond,
+		EndPause:  time.Duration(p.EndPauseMS) * time.Millisecond,
+		MaxPhrase: time.Duration(p.MaxPhraseMS) * time.Millisecond,
+	}
+}
+
+func Parse(file []byte) (Settings, error) {
+	// Notepad may open a UTF-8 file with a byte order mark, and JSON allows none.
+	decoder := json.NewDecoder(bytes.NewReader(bytes.TrimPrefix(file, []byte("\xef\xbb\xbf"))))
+	decoder.DisallowUnknownFields()
+
+	s := Defaults()
+	if err := decoder.Decode(&s); err != nil {
+		return Settings{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Settings{}, fmt.Errorf("%w: more follows the settings", ErrInvalid)
+	}
+
+	if err := s.check(); err != nil {
+		return Settings{}, err
+	}
+
+	return s, nil
+}
+
+func Encode(s Settings) ([]byte, error) {
+	file, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+
+	return append(file, '\n'), nil
+}
+
+func (s Settings) check() error {
+	switch {
+	// whisper-server takes a language it does not know without complaint and hears nonsense,
+	// so only the languages Sublayer is meant for get through.
+	case !slices.Contains(Languages, s.Language):
+		return fmt.Errorf("%w: language %q, want one of %s", ErrInvalid, s.Language, strings.Join(Languages, ", "))
+	case !slices.Contains(Targets, s.Target):
+		return fmt.Errorf("%w: target %q, want one of %s", ErrInvalid, s.Target, strings.Join(Targets, ", "))
+	case s.Pairs < fewestPairs || s.Pairs > mostPairs:
+		return fmt.Errorf("%w: pairs %d, want %d to %d", ErrInvalid, s.Pairs, fewestPairs, mostPairs)
+	}
+
+	return errors.Join(
+		checkAddress("whisper", s.Whisper.Address),
+		checkAddress("libretranslate", s.Libre.Address),
+		s.Phrases.check(),
+	)
+}
+
+func checkAddress(server, address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || host == "" {
+		return fmt.Errorf("%w: %s.address %q, want host:port", ErrInvalid, server, address)
+	}
+
+	number, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || number == 0 {
+		return fmt.Errorf("%w: %s.address %q, want a port from 1 to 65535", ErrInvalid, server, address)
+	}
+
+	return nil
+}
+
+func (p Phrases) check() error {
+	switch {
+	case p.MinSpeechMS < 1 || p.EndPauseMS < 1:
+		return fmt.Errorf("%w: min_speech_ms %d and end_pause_ms %d, want both above zero", ErrInvalid, p.MinSpeechMS, p.EndPauseMS)
+	case p.MinSpeechMS >= p.MaxPhraseMS || p.EndPauseMS >= p.MaxPhraseMS:
+		return fmt.Errorf("%w: min_speech_ms %d and end_pause_ms %d, want both below max_phrase_ms %d", ErrInvalid, p.MinSpeechMS, p.EndPauseMS, p.MaxPhraseMS)
+	}
+
+	return nil
+}

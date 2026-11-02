@@ -29,13 +29,22 @@ go build ./cmd/sublayer
 
 ## Run
 
-Start whisper-server and LibreTranslate, then name the language the other side speaks,
-`fr` or `en`, or leave `auto` to let each phrase tell:
+Start whisper-server and LibreTranslate, then run Sublayer:
 
 ```
-sublayer -lang fr
+sublayer
 ```
 
 The subtitles appear at the bottom left over every window, and clicks go through them.
-Press Ctrl+C in the console to stop. `sublayer listen` prints the same pairs in the
-console alone, and `sublayer listen file.wav` reads a recording instead of the speakers.
+Press Ctrl+C in the console to stop. `-lang fr` or `-lang en` names the language the
+other side speaks for this run, and `-lang auto` lets each phrase tell. `sublayer listen`
+prints the same pairs in the console alone, and `sublayer listen file.wav` reads a
+recording instead of the speakers.
+
+## Settings
+
+Sublayer keeps its settings in `%APPDATA%\Sublayer\config.json` and writes the defaults
+there on the first run. The file names the language the other side speaks and the one to
+translate into, the address each server listens on, how many pairs the overlay shows,
+from 3 to 6, and how speech is cut into phrases: the shortest speech that counts, the
+pause that ends a phrase and the longest phrase, in milliseconds.

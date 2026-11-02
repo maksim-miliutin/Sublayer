@@ -26,7 +26,7 @@ func TestRunTakesEachCommandToTheDeviceItOpensFirst(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if err := run(c.args); !errors.Is(err, c.want) {
+		if err := run(c.args, offline); !errors.Is(err, c.want) {
 			t.Errorf("%q gave %v, want %v", c.args, err, c.want)
 		}
 	}

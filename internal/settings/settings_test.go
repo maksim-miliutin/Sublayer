@@ -1,0 +1,130 @@
+package settings
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/maksim-miliutin/Sublayer/internal/vad"
+)
+
+func TestDefaultsSurviveAWriteAndARead(t *testing.T) {
+	file, err := Encode(Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := Parse(file); err != nil || got != Defaults() {
+		t.Errorf("read back %+v, %v; want the defaults %+v", got, err, Defaults())
+	}
+}
+
+func TestDefaultsCutPhrasesTheWayTheCutterDoes(t *testing.T) {
+	if got := Defaults().Phrases.Config(); got != vad.Defaults() {
+		t.Errorf("the default phrases cut as %+v, want the cutter's own %+v", got, vad.Defaults())
+	}
+}
+
+func TestPhrasesTurnMillisecondsIntoTheCuttersConfig(t *testing.T) {
+	p := Phrases{MinSpeechMS: 250, EndPauseMS: 800, MaxPhraseMS: 9000}
+	want := vad.Config{MinSpeech: 250 * time.Millisecond, EndPause: 800 * time.Millisecond, MaxPhrase: 9 * time.Second}
+
+	if got := p.Config(); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestParseKeepsTheDefaultsForWhatTheFileLeavesOut(t *testing.T) {
+	want := Defaults()
+	want.Language = "fr"
+	want.Phrases.EndPauseMS = 800
+
+	got, err := Parse([]byte(`{"language": "fr", "phrases": {"end_pause_ms": 800}}`))
+	if err != nil || got != want {
+		t.Errorf("got %+v, %v; want %+v", got, err, want)
+	}
+}
+
+func TestParseReadsAFileThatStartsWithAByteOrderMark(t *testing.T) {
+	got, err := Parse([]byte("\xef\xbb\xbf{\"pairs\": 5}"))
+	if err != nil || got.Pairs != 5 {
+		t.Errorf("got %d pairs, %v; want 5", got.Pairs, err)
+	}
+}
+
+func TestParseRefusesSettingsItCannotUse(t *testing.T) {
+	refused := map[string]string{
+		"broken json":                `{"language": "fr"`,
+		"empty file":                 ``,
+		"two documents":              `{} {}`,
+		"misspelt name":              `{"langauge": "fr"}`,
+		"wrong type":                 `{"pairs": "four"}`,
+		"unknown language":           `{"language": "de"}`,
+		"unknown target":             `{"target": "fr"}`,
+		"too few pairs":              `{"pairs": 2}`,
+		"too many pairs":             `{"pairs": 7}`,
+		"address without a port":     `{"whisper": {"address": "127.0.0.1"}}`,
+		"address without a host":     `{"libretranslate": {"address": ":5000"}}`,
+		"port named, not numbered":   `{"libretranslate": {"address": "localhost:http"}}`,
+		"port zero":                  `{"whisper": {"address": "127.0.0.1:0"}}`,
+		"port past the last":         `{"whisper": {"address": "127.0.0.1:65536"}}`,
+		"no speech needed":           `{"phrases": {"min_speech_ms": 0}}`,
+		"no pause needed":            `{"phrases": {"end_pause_ms": 0}}`,
+		"pause below zero":           `{"phrases": {"end_pause_ms": -1}}`,
+		"no phrase at all":           `{"phrases": {"max_phrase_ms": 0}}`,
+		"speech as long as a phrase": `{"phrases": {"min_speech_ms": 12000}}`,
+		"pause as long as a phrase":  `{"phrases": {"end_pause_ms": 12000}}`,
+	}
+
+	for name, file := range refused {
+		if _, err := Parse([]byte(file)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: got %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+func TestParseTakesTheEdgesOfWhatItAllows(t *testing.T) {
+	allowed := []string{
+		`{"pairs": 3}`,
+		`{"pairs": 6}`,
+		`{"target": "en", "language": "fr"}`,
+		`{"whisper": {"address": "localhost:1"}, "libretranslate": {"address": "[::1]:65535"}}`,
+		`{"phrases": {"min_speech_ms": 1, "end_pause_ms": 1, "max_phrase_ms": 2}}`,
+	}
+
+	for _, file := range allowed {
+		if _, err := Parse([]byte(file)); err != nil {
+			t.Errorf("%s: got %v, want it taken", file, err)
+		}
+	}
+}
+
+func TestEncodeWritesNamesAPersonCanReadAndEdit(t *testing.T) {
+	file, err := Encode(Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(file)
+	for _, line := range []string{
+		`  "language": "auto",`,
+		`  "target": "ru",`,
+		`  "whisper": {`,
+		`    "address": "127.0.0.1:8178"`,
+		`  "libretranslate": {`,
+		`    "address": "127.0.0.1:5000"`,
+		`  "pairs": 4,`,
+		`    "min_speech_ms": 300,`,
+		`    "end_pause_ms": 600,`,
+		`    "max_phrase_ms": 12000`,
+	} {
+		if !strings.Contains(text, line+"\n") {
+			t.Errorf("the file lacks the line %q:\n%s", line, text)
+		}
+	}
+
+	if !strings.HasSuffix(text, "}\n") {
+		t.Errorf("the file does not end its last line:\n%q", text)
+	}
+}

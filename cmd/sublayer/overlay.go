@@ -6,13 +6,11 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
-const (
-	samplePause = 2 * time.Second
-	shownPairs  = 4
-)
+const samplePause = 2 * time.Second
 
 var samples = []ui.Pair{
 	{Original: "Bonjour, merci d'être là aujourd'hui.", Translation: "Здравствуйте, спасибо, что пришли сегодня."},
@@ -56,7 +54,7 @@ func overlay() error {
 
 func sampleFrame(n int) ui.Frame {
 	var pairs []ui.Pair
-	for i := max(0, n-shownPairs+1); i <= n; i++ {
+	for i := max(0, n-settings.Defaults().Pairs+1); i <= n; i++ {
 		pairs = append(pairs, samples[i%len(samples)])
 	}
 
