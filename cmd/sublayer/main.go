@@ -5,12 +5,18 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 )
 
-var errUsage = fmt.Errorf("usage: sublayer %[1]s | sublayer record <file.wav> | sublayer listen %[1]s [file.wav] | sublayer overlay", "[-lang "+strings.Join(languages, "|")+"]")
+var errUsage = fmt.Errorf("usage: sublayer %[1]s | sublayer record <file.wav> | sublayer listen %[1]s [file.wav] | sublayer overlay", "[-lang "+strings.Join(settings.Languages, "|")+"]")
+
+type machine struct {
+	settings func() (settings.Settings, error)
+}
 
 func main() {
-	err := run(os.Args[1:])
+	err := run(os.Args[1:], machine{settings: loadSettings})
 	if err == nil {
 		return
 	}
@@ -24,14 +30,14 @@ func main() {
 	os.Exit(1)
 }
 
-func run(args []string) error {
+func run(args []string, m machine) error {
 	switch {
 	case len(args) == 0 || strings.HasPrefix(args[0], "-"):
-		return subtitles(args)
+		return subtitles(args, m)
 	case len(args) == 2 && args[0] == "record":
 		return record(args[1])
 	case args[0] == "listen":
-		return listen(args[1:])
+		return listen(args[1:], m)
 	case len(args) == 1 && args[0] == "overlay":
 		return overlay()
 	}

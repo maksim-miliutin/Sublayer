@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/translate"
 	"github.com/maksim-miliutin/Sublayer/internal/wav"
 )
@@ -25,8 +26,9 @@ func TestLibreTranslateTurnsTheSpeechLanguagesIntoRussian(t *testing.T) {
 		"auto": "Je vous rappelle demain matin.",
 	}
 
+	s := settings.Defaults()
 	for language, text := range said {
-		l := translate.NewLibre(translate.Config{URL: libreURL, Source: language, Target: translateInto}, localClient())
+		l := translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: language, Target: s.Target}, localClient())
 
 		got, err := l.Translate(context.Background(), text)
 		if err != nil || !russian(got) {
@@ -59,7 +61,7 @@ func TestTheServersHearAndTranslateTheRecordedSpeech(t *testing.T) {
 		heard = append(heard, r)
 	}
 
-	if err := interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: report}, "auto"); err != nil {
+	if err := interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: report}, settings.Defaults()); err != nil {
 		t.Fatal(err)
 	}
 

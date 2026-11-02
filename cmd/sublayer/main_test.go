@@ -5,8 +5,13 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
+
+var errUnreadable = errors.New("settings: the file could not be read")
+
+var offline = machine{settings: func() (settings.Settings, error) { return settings.Defaults(), nil }}
 
 func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	refused := [][]string{
@@ -27,8 +32,18 @@ func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	}
 
 	for _, args := range refused {
-		if err := run(args); !errors.Is(err, errUsage) {
+		if err := run(args, offline); !errors.Is(err, errUsage) {
 			t.Errorf("%q gave %v, want the usage", args, err)
+		}
+	}
+}
+
+func TestRunReadsTheSettingsBeforeOpeningAnyDevice(t *testing.T) {
+	unreadable := machine{settings: func() (settings.Settings, error) { return settings.Settings{}, errUnreadable }}
+
+	for _, args := range [][]string{nil, {"-lang", "fr"}, {"listen"}, {"listen", "a.wav"}} {
+		if err := run(args, unreadable); !errors.Is(err, errUnreadable) {
+			t.Errorf("%q gave %v, want the settings failure", args, err)
 		}
 	}
 }

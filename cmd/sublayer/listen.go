@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -13,26 +14,21 @@ import (
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/stt"
 	"github.com/maksim-miliutin/Sublayer/internal/translate"
-	"github.com/maksim-miliutin/Sublayer/internal/vad"
 	"github.com/maksim-miliutin/Sublayer/internal/wav"
 )
 
 const (
-	whisperURL     = "http://127.0.0.1:8178/inference"
-	libreURL       = "http://127.0.0.1:5000/translate"
+	whisperPath    = "/inference"
+	librePath      = "/translate"
 	serverTimeout  = 30 * time.Second
 	waitingPhrases = 3
-	translateInto  = "ru"
 )
 
-// whisper-server takes a language it does not know without complaint and hears nonsense,
-// so only the languages Sublayer is meant for get through.
-var languages = []string{"auto", "fr", "en"}
-
 type hearing struct {
-	language string
+	language string // empty leaves it to the settings
 	file     string
 }
 
@@ -58,29 +54,55 @@ func (r *recording) Close() error {
 func parseListen(args []string) (hearing, error) {
 	flags := flag.NewFlagSet("listen", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	language := flags.String("lang", "auto", "")
+	language := flags.String("lang", "", "")
 
-	if flags.Parse(args) != nil || flags.NArg() > 1 || !slices.Contains(languages, *language) {
+	if flags.Parse(args) != nil || flags.NArg() > 1 {
+		return hearing{}, errUsage
+	}
+
+	if *language != "" && !slices.Contains(settings.Languages, *language) {
 		return hearing{}, errUsage
 	}
 
 	return hearing{language: *language, file: flags.Arg(0)}, nil
 }
 
-func listen(args []string) error {
-	h, err := parseListen(args)
+func (h hearing) over(s settings.Settings) settings.Settings {
+	if h.language != "" {
+		s.Language = h.language
+	}
+
+	return s
+}
+
+func settle(args []string, m machine) (hearing, settings.Settings, error) {
+	asked, err := parseListen(args)
+	if err != nil {
+		return hearing{}, settings.Settings{}, err
+	}
+
+	s, err := m.settings()
+	if err != nil {
+		return hearing{}, settings.Settings{}, err
+	}
+
+	return asked, asked.over(s), nil
+}
+
+func listen(args []string, m machine) error {
+	asked, s, err := settle(args, m)
 	if err != nil {
 		return err
 	}
 
-	if h.file != "" {
-		return listenFile(h.file, h.language)
+	if asked.file != "" {
+		return listenFile(asked.file, s)
 	}
 
-	return listenSpeakers(h.language)
+	return listenSpeakers(s)
 }
 
-func listenSpeakers(language string) error {
+func listenSpeakers(s settings.Settings) error {
 	source, err := capture.Open()
 	if err != nil {
 		return err
@@ -90,10 +112,10 @@ func listenSpeakers(language string) error {
 
 	fmt.Fprintln(os.Stderr, "listening to the speakers; each phrase shows its times and text with the translation under it, and in brackets how long each took; press Ctrl+C to stop")
 
-	return interpret(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, language)
+	return interpret(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, s)
 }
 
-func listenFile(path, language string) error {
+func listenFile(path string, s settings.Settings) error {
 	file, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -104,17 +126,21 @@ func listenFile(path, language string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	return interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, language)
+	return interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, s)
 }
 
-func interpret(c pipeline.Config, language string) error {
+func interpret(c pipeline.Config, s settings.Settings) error {
 	client := localClient()
 
-	c.Phrases = vad.Defaults()
-	c.Transcriber = stt.NewWhisper(stt.Config{URL: whisperURL, Language: language}, client)
-	c.Translator = translate.NewLibre(translate.Config{URL: libreURL, Source: language, Target: translateInto}, client)
+	c.Phrases = s.Phrases.Config()
+	c.Transcriber = stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper, whisperPath), Language: s.Language}, client)
+	c.Translator = translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: s.Language, Target: s.Target}, client)
 
 	return unlessClosed(pipeline.Run(context.Background(), c))
+}
+
+func endpoint(server settings.Server, path string) string {
+	return (&url.URL{Scheme: "http", Host: server.Address, Path: path}).String()
 }
 
 // Unlike the default client this one never takes a proxy from the environment, so speech
