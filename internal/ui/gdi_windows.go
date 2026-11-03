@@ -23,9 +23,7 @@ const (
 	white              = 0x00ffffff
 	wholeString        = ^uintptr(0)
 
-	originalPoints    = 11
-	translationPoints = 15
-	fontFace          = "Segoe UI"
+	fontFace = "Segoe UI"
 )
 
 type winRect struct {
@@ -96,20 +94,21 @@ type renderer struct {
 	translation uintptr
 }
 
-func newRenderer(dpi int) (*renderer, error) {
+func newRenderer(dpi int, look Look) (*renderer, error) {
 	g, err := loadGDI()
 	if err != nil {
 		return nil, err
 	}
 
 	r := &renderer{gdi: g, metrics: scaledMetrics(dpi)}
+	original, translation := look.fontPixels(dpi)
 
-	r.original, err = g.font(originalPoints*dpi/72, fwNormal)
+	r.original, err = g.font(original, fwNormal)
 	if err != nil {
 		return nil, err
 	}
 
-	r.translation, err = g.font(translationPoints*dpi/72, fwSemibold)
+	r.translation, err = g.font(translation, fwSemibold)
 	if err != nil {
 		r.close()
 		return nil, err

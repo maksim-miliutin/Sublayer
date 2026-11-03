@@ -2,6 +2,6 @@
 
 package ui
 
-func Open(*Point) (Window, error) {
+func Open(Options) (Window, error) {
 	return nil, ErrUnsupported
 }

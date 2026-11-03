@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/controls"
@@ -25,6 +26,13 @@ type Config struct {
 	Remember  func(language string) error // keeps a chosen language for the next start; nil keeps none
 	Place     func(ui.Point) error        // keeps where the subtitles were moved to; nil keeps nothing
 	MoveHint  string
+	Linger    time.Duration    // how long a pair stays; zero keeps it until newer ones push it out
+	Now       func() time.Time // nil reads the clock
+}
+
+type heard struct {
+	pair ui.Pair
+	at   time.Time
 }
 
 type Session struct {
@@ -32,7 +40,7 @@ type Session struct {
 	ctx       context.Context
 	quit      context.CancelFunc
 	mu        sync.Mutex
-	pairs     []ui.Pair
+	pairs     []heard
 	state     ui.State
 	listening bool
 	paused    bool
@@ -99,7 +107,7 @@ func (s *Session) Report(r pipeline.Result) {
 	}
 
 	if r.Text != "" {
-		s.pairs = append(s.pairs, ui.Pair{Original: r.Text, Translation: r.Translation})
+		s.pairs = append(s.pairs, heard{pair: ui.Pair{Original: r.Text, Translation: r.Translation}, at: s.now()})
 		s.pairs = s.pairs[max(0, len(s.pairs)-s.config.Shown):]
 	}
 
@@ -109,6 +117,38 @@ func (s *Session) Report(r pipeline.Result) {
 	}
 
 	s.show()
+}
+
+func (s *Session) Expire() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.config.Linger == 0 {
+		return
+	}
+
+	now := s.now()
+	kept := make([]heard, 0, len(s.pairs))
+	for _, h := range s.pairs {
+		if now.Sub(h.at) < s.config.Linger {
+			kept = append(kept, h)
+		}
+	}
+
+	if len(kept) == len(s.pairs) {
+		return
+	}
+
+	s.pairs = kept
+	s.show()
+}
+
+func (s *Session) now() time.Time {
+	if s.config.Now == nil {
+		return time.Now()
+	}
+
+	return s.config.Now()
 }
 
 func (s *Session) Language() string {
@@ -228,7 +268,7 @@ func (s *Session) copyLast() {
 		return
 	}
 
-	last := s.pairs[len(s.pairs)-1]
+	last := s.pairs[len(s.pairs)-1].pair
 	s.mu.Unlock()
 
 	text := last.Original
@@ -275,9 +315,13 @@ func (s *Session) show() {
 		state = ui.Paused
 	}
 
-	pairs := s.pairs
+	pairs := make([]ui.Pair, 0, len(s.pairs)+1)
+	for _, h := range s.pairs {
+		pairs = append(pairs, h.pair)
+	}
+
 	if s.moving {
-		pairs = append(slices.Clone(s.pairs), ui.Pair{Original: s.config.MoveHint})
+		pairs = append(pairs, ui.Pair{Original: s.config.MoveHint})
 	}
 
 	if err := s.config.Window.Show(ui.Frame{Pairs: pairs, State: state, Hidden: s.hidden && !s.moving, Moving: s.moving}); err != nil {

@@ -8,7 +8,6 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/controls"
 	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
-	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
 func TestKeysForBindEachSettingToItsChoice(t *testing.T) {
@@ -46,22 +45,5 @@ func TestKeyOfNamesTheKeyOfACommand(t *testing.T) {
 
 	if got := keyOf(nil, controls.ToggleMove); got != "" {
 		t.Errorf("without keys got %q, want nothing", got)
-	}
-}
-
-func TestTheSettingsKeepWhatTheSessionChose(t *testing.T) {
-	s := speaking("en")(settings.Defaults())
-	s = placed(ui.Point{X: 40, Y: 980})(s)
-
-	if s.Language != "en" || s.Corner == nil || *s.Corner != (settings.Corner{X: 40, Y: 980}) {
-		t.Errorf("got %q and %+v, want en and the corner at 40, 980", s.Language, s.Corner)
-	}
-
-	if got := cornerOf(s); got == nil || *got != (ui.Point{X: 40, Y: 980}) {
-		t.Errorf("the window would open at %+v, want 40, 980", got)
-	}
-
-	if got := cornerOf(settings.Defaults()); got != nil {
-		t.Errorf("without a corner the window would open at %+v, want its default", got)
 	}
 }

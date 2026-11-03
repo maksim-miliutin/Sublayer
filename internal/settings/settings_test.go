@@ -54,6 +54,12 @@ func TestParseReadsAFileThatStartsWithAByteOrderMark(t *testing.T) {
 	}
 }
 
+func TestLingerCountsInSeconds(t *testing.T) {
+	if got := (Overlay{LingerSeconds: 10}).Linger(); got != 10*time.Second {
+		t.Errorf("10 linger seconds came to %v", got)
+	}
+}
+
 func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 	refused := map[string]string{
 		"broken json":                     `{"language": "fr"`,
@@ -63,7 +69,15 @@ func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 		"wrong type":                      `{"pairs": "four"}`,
 		"unknown language":                `{"language": "de"}`,
 		"unknown target":                  `{"target": "fr"}`,
-		"too few pairs":                   `{"pairs": 2}`,
+		"no pairs":                        `{"pairs": 0}`,
+		"text too small":                  `{"overlay": {"text_size": 7}}`,
+		"text too large":                  `{"overlay": {"text_size": 41}}`,
+		"too narrow":                      `{"overlay": {"width_percent": 9}}`,
+		"too wide":                        `{"overlay": {"width_percent": 81}}`,
+		"background below clear":          `{"overlay": {"background_percent": -1}}`,
+		"background past solid":           `{"overlay": {"background_percent": 101}}`,
+		"lingering below zero":            `{"overlay": {"linger_seconds": -1}}`,
+		"lingering past two minutes":      `{"overlay": {"linger_seconds": 121}}`,
 		"too many pairs":                  `{"pairs": 7}`,
 		"address without a port":          `{"whisper": {"address": "127.0.0.1"}}`,
 		"address without a host":          `{"libretranslate": {"address": ":5000"}}`,
@@ -92,7 +106,9 @@ func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 
 func TestParseTakesTheEdgesOfWhatItAllows(t *testing.T) {
 	allowed := []string{
-		`{"pairs": 3}`,
+		`{"pairs": 1}`,
+		`{"overlay": {"text_size": 8, "width_percent": 10, "background_percent": 0, "linger_seconds": 0}}`,
+		`{"overlay": {"text_size": 40, "width_percent": 80, "background_percent": 100, "linger_seconds": 120}}`,
 		`{"pairs": 6}`,
 		`{"target": "en", "language": "fr"}`,
 		`{"whisper": {"address": "localhost:1"}, "libretranslate": {"address": "[::1]:65535"}}`,
@@ -144,7 +160,12 @@ func TestEncodeWritesNamesAPersonCanReadAndEdit(t *testing.T) {
 		`  "libretranslate": {`,
 		`    "address": "127.0.0.1:5000",`,
 		`    "program": ""`,
-		`  "pairs": 4,`,
+		`  "pairs": 3,`,
+		`  "overlay": {`,
+		`    "text_size": 12,`,
+		`    "width_percent": 25,`,
+		`    "background_percent": 75,`,
+		`    "linger_seconds": 10`,
 		`    "min_speech_ms": 300,`,
 		`    "end_pause_ms": 600,`,
 		`    "max_phrase_ms": 12000`,

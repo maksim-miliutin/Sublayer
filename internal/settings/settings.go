@@ -23,7 +23,7 @@ var Languages = []string{"auto", "fr", "en"}
 var Targets = []string{"ru", "en"}
 
 const (
-	fewestPairs = 3
+	fewestPairs = 1
 	mostPairs   = 6
 )
 
@@ -33,6 +33,7 @@ type Settings struct {
 	Whisper  Whisper `json:"whisper"`
 	Libre    Server  `json:"libretranslate"`
 	Pairs    int     `json:"pairs"`
+	Overlay  Overlay `json:"overlay"`
 	Phrases  Phrases `json:"phrases"`
 	Keys     Keys    `json:"keys"`
 	Corner   *Corner `json:"corner,omitempty"` // where the subtitles were moved to; absent leaves them at the bottom left
@@ -51,6 +52,13 @@ type Server struct {
 type Whisper struct {
 	Server
 	Model string `json:"model"`
+}
+
+type Overlay struct {
+	TextSize          int `json:"text_size"` // points of the translation; the original is three quarters of it
+	WidthPercent      int `json:"width_percent"`
+	BackgroundPercent int `json:"background_percent"`
+	LingerSeconds     int `json:"linger_seconds"` // zero keeps a pair until newer ones push it out
 }
 
 type Keys struct {
@@ -76,8 +84,9 @@ func Defaults() Settings {
 			Server: Server{Address: "127.0.0.1:8178", Program: "whisper-server.exe"},
 			Model:  "models/ggml-large-v3-turbo.bin",
 		},
-		Libre: Server{Address: "127.0.0.1:5000"},
-		Pairs: 4,
+		Libre:   Server{Address: "127.0.0.1:5000"},
+		Pairs:   3,
+		Overlay: Overlay{TextSize: 12, WidthPercent: 25, BackgroundPercent: 75, LingerSeconds: 10},
 		Phrases: Phrases{
 			MinSpeechMS: int(cut.MinSpeech / time.Millisecond),
 			EndPauseMS:  int(cut.EndPause / time.Millisecond),
@@ -104,6 +113,10 @@ func (p Phrases) Config() vad.Config {
 		EndPause:  time.Duration(p.EndPauseMS) * time.Millisecond,
 		MaxPhrase: time.Duration(p.MaxPhraseMS) * time.Millisecond,
 	}
+}
+
+func (o Overlay) Linger() time.Duration {
+	return time.Duration(o.LingerSeconds) * time.Second
 }
 
 func Parse(file []byte) (Settings, error) {
@@ -154,8 +167,27 @@ func (s Settings) check() error {
 		checkAddress("whisper", s.Whisper.Address),
 		checkAddress("libretranslate", s.Libre.Address),
 		s.Phrases.check(),
+		s.Overlay.check(),
 		s.Keys.check(),
 	)
+}
+
+func (o Overlay) check() error {
+	for _, field := range []struct {
+		name               string
+		value, least, most int
+	}{
+		{"text_size", o.TextSize, 8, 40},
+		{"width_percent", o.WidthPercent, 10, 80},
+		{"background_percent", o.BackgroundPercent, 0, 100},
+		{"linger_seconds", o.LingerSeconds, 0, 120},
+	} {
+		if field.value < field.least || field.value > field.most {
+			return fmt.Errorf("%w: overlay.%s %d, want %d to %d", ErrInvalid, field.name, field.value, field.least, field.most)
+		}
+	}
+
+	return nil
 }
 
 func (k Keys) check() error {

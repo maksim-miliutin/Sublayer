@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/app"
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
@@ -13,6 +14,8 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
+
+const expireEvery = 250 * time.Millisecond
 
 func subtitles(args []string, m machine) (err error) {
 	asked, s, err := settle(args, m)
@@ -42,7 +45,7 @@ func subtitles(args []string, m machine) (err error) {
 		}()
 	}
 
-	window, err := ui.Open(cornerOf(s))
+	window, err := ui.Open(ui.Options{Corner: cornerOf(s), Look: lookOf(s)})
 	if err != nil {
 		return errors.Join(err, panel.Close())
 	}
@@ -57,7 +60,11 @@ func subtitles(args []string, m machine) (err error) {
 		Remember:  func(language string) error { return m.update(speaking(language)) },
 		Place:     func(at ui.Point) error { return m.update(placed(at)) },
 		MoveHint:  "Drag to move, then " + keyOf(keys, controls.ToggleMove) + " again to fix",
+		Linger:    s.Overlay.Linger(),
 	})
+	ticks := time.NewTicker(expireEvery)
+	defer ticks.Stop()
+	go expire(session, ticks.C)
 	go session.Follow(panel.Choices())
 	defer closeOnInterrupt(quitter(session.Quit))()
 
@@ -100,6 +107,21 @@ func subtitles(args []string, m machine) (err error) {
 func closeOnQuit(session *app.Session, source capture.Source) {
 	<-session.Context().Done()
 	source.Close()
+}
+
+func expire(session *app.Session, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ticks:
+			session.Expire()
+		case <-session.Context().Done():
+			return
+		}
+	}
+}
+
+func lookOf(s settings.Settings) ui.Look {
+	return ui.Look{TextPoints: s.Overlay.TextSize, WidthPercent: s.Overlay.WidthPercent, BackgroundPercent: s.Overlay.BackgroundPercent}
 }
 
 func cornerOf(s settings.Settings) *ui.Point {

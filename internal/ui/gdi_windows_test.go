@@ -9,7 +9,7 @@ import (
 func rendered(t *testing.T, f Frame, width int) *canvas {
 	t.Helper()
 
-	r, err := newRenderer(96)
+	r, err := newRenderer(96, Look{TextPoints: 15, WidthPercent: 30, BackgroundPercent: 85})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -57,15 +57,15 @@ alone, and `sublayer listen file.wav` reads a recording instead of the speakers.
 
 ## Settings
 
-Sublayer keeps its settings in `%APPDATA%\Sublayer\config.json` and writes the defaults
-there on the first run. The file names the language the other side speaks and the one to
-translate into; for each server, the address it listens on and the program that starts
-it, with the model whisper-server loads; how many pairs the overlay shows, from 3 to 6;
-how speech is cut into phrases: the shortest speech that counts, the pause that ends a
-phrase and the longest phrase, in milliseconds; the keys, written as `Ctrl+Alt+T`; and,
-once the subtitles were moved, the screen corner they were moved to. A
-relative path is taken from the folder of `sublayer.exe`, and forward slashes spare
-doubling every backslash:
+Sublayer keeps its settings in `%APPDATA%\Sublayer\config.json`, writes the defaults
+there on the first run and reads the file at every start. The file names the language the
+other side speaks and the one to translate into; for each server, the address it listens
+on and the program that starts it, with the model whisper-server loads; how many pairs
+the overlay shows, from 1 to 6, and how they look; how speech is cut into phrases: the
+shortest speech that counts, the pause that ends a phrase and the longest phrase, in
+milliseconds; the keys, written as `Ctrl+Alt+T`; and, once the subtitles were moved, the
+screen corner they were moved to. A relative path is taken from the folder of
+`sublayer.exe`, and forward slashes spare doubling every backslash:
 
 ```json
 "whisper": {
@@ -78,3 +78,22 @@ doubling every backslash:
   "program": "C:/lt-venv/Scripts/libretranslate.exe"
 }
 ```
+
+In `overlay`, `text_size` is the size of the translation in points, from 8 to 40, and
+the original takes three quarters of it; `width_percent` is the share of the screen width
+the subtitles take, from 10 to 80; `background_percent` is how opaque their plates are,
+from 0 for none to 100 for solid; and `linger_seconds` is how long a pair stays, up to
+120, while 0 keeps it until newer pairs push it out:
+
+```json
+"pairs": 3,
+"overlay": {
+  "text_size": 12,
+  "width_percent": 25,
+  "background_percent": 75,
+  "linger_seconds": 10
+},
+```
+
+A phrase is translated once it ends, so a shorter `max_phrase_ms` brings long speech to
+the screen sooner, cut in more places.
