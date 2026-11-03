@@ -78,6 +78,7 @@ func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 		"a key without a modifier":        `{"keys": {"show": "T"}}`,
 		"one key for two things":          `{"keys": {"pause": "Ctrl+Alt+T"}}`,
 		"a copy key without a modifier":   `{"keys": {"copy": "C"}}`,
+		"a move key without a modifier":   `{"keys": {"move": "M"}}`,
 		"speech as long as a phrase":      `{"phrases": {"min_speech_ms": 12000}}`,
 		"pause as long as a phrase":       `{"phrases": {"end_pause_ms": 12000}}`,
 	}
@@ -105,6 +106,18 @@ func TestParseTakesTheEdgesOfWhatItAllows(t *testing.T) {
 		if _, err := Parse([]byte(file)); err != nil {
 			t.Errorf("%s: got %v, want it taken", file, err)
 		}
+	}
+}
+
+func TestACornerIsKeptOnlyOnceTheSubtitlesWereMoved(t *testing.T) {
+	file, err := Encode(Defaults())
+	if err != nil || strings.Contains(string(file), "corner") {
+		t.Errorf("the defaults wrote %v with a corner in:\n%s", err, file)
+	}
+
+	s, err := Parse([]byte(`{"corner": {"x": 120, "y": 900}}`))
+	if err != nil || s.Corner == nil || *s.Corner != (Corner{X: 120, Y: 900}) {
+		t.Errorf("got %+v, %v; want the corner at 120, 900", s.Corner, err)
 	}
 }
 
@@ -138,7 +151,8 @@ func TestEncodeWritesNamesAPersonCanReadAndEdit(t *testing.T) {
 		`  "keys": {`,
 		`    "show": "Ctrl+Alt+T",`,
 		`    "pause": "Ctrl+Alt+P",`,
-		`    "copy": "Ctrl+Alt+C"`,
+		`    "copy": "Ctrl+Alt+C",`,
+		`    "move": "Ctrl+Alt+M"`,
 	} {
 		if !strings.Contains(text, line+"\n") {
 			t.Errorf("the file lacks the line %q:\n%s", line, text)

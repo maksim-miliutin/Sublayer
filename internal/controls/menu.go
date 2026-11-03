@@ -32,6 +32,7 @@ func menu(s Status, c Config) []item {
 		item{label: "Pause", choice: Choice{Command: TogglePause}, checked: s.Paused},
 		item{label: "Hide subtitles", choice: Choice{Command: ToggleHidden}, checked: s.Hidden},
 		item{label: "Copy the last pair", choice: Choice{Command: CopyLast}},
+		item{label: "Move subtitles", choice: Choice{Command: ToggleMove}, checked: s.Moving},
 		item{line: true},
 		item{label: "Exit", choice: Choice{Command: Quit}},
 	)
@@ -99,6 +100,10 @@ func tip(s Status) string {
 
 	if s.Hidden {
 		text += ", hidden"
+	}
+
+	if s.Moving {
+		text += ", moving"
 	}
 
 	runes := []rune(text)

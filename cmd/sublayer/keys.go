@@ -10,7 +10,7 @@ func keysFor(k settings.Keys) ([]controls.Key, error) {
 	bound := []struct {
 		text    string
 		command controls.Command
-	}{{k.Show, controls.ToggleHidden}, {k.Pause, controls.TogglePause}, {k.Copy, controls.CopyLast}}
+	}{{k.Show, controls.ToggleHidden}, {k.Pause, controls.TogglePause}, {k.Copy, controls.CopyLast}, {k.Move, controls.ToggleMove}}
 
 	keys := make([]controls.Key, 0, len(bound))
 	for _, b := range bound {
@@ -23,4 +23,14 @@ func keysFor(k settings.Keys) ([]controls.Key, error) {
 	}
 
 	return keys, nil
+}
+
+func keyOf(keys []controls.Key, command controls.Command) string {
+	for _, k := range keys {
+		if k.Choice.Command == command {
+			return k.Combo.String()
+		}
+	}
+
+	return ""
 }

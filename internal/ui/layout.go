@@ -165,6 +165,14 @@ func (l layout) arrange(f Frame, measured []heights) scene {
 	return s
 }
 
+func (l layout) at(height int, corner *Point) rect {
+	if corner == nil {
+		return l.place(height)
+	}
+
+	return rect{x: corner.X, y: corner.Y - height, w: l.width, h: height}
+}
+
 func (l layout) place(height int) rect {
 	return rect{x: l.work.x + l.margin, y: l.work.bottom() - l.margin - height, w: l.width, h: height}
 }

@@ -25,9 +25,15 @@ type Frame struct {
 	Pairs  []Pair // oldest first; the newest is shown at the bottom
 	State  State
 	Hidden bool
+	Moving bool
+}
+
+type Point struct {
+	X, Y int // screen pixels
 }
 
 type Window interface {
 	Show(Frame) error
+	Corner() Point
 	Close() error
 }

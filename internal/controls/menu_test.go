@@ -17,6 +17,7 @@ var keyed = Config{
 		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "T"}, Choice: Choice{Command: ToggleHidden}},
 		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "P"}, Choice: Choice{Command: TogglePause}},
 		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "C"}, Choice: Choice{Command: CopyLast}},
+		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "M"}, Choice: Choice{Command: ToggleMove}},
 	},
 }
 
@@ -45,13 +46,14 @@ func TestMenuOffersEveryLanguageAndTicksTheOneSpoken(t *testing.T) {
 	}
 }
 
-func TestMenuTicksPauseAndHidingAsTheyStand(t *testing.T) {
-	for _, s := range []Status{{Paused: true}, {Hidden: true}, {}} {
+func TestMenuTicksPauseHidingAndMovingAsTheyStand(t *testing.T) {
+	for _, s := range []Status{{Paused: true}, {Hidden: true}, {Moving: true}, {}} {
 		items := menu(s, Config{Languages: languages})
 
 		pause, _ := chosen(items, Choice{Command: TogglePause})
 		hide, _ := chosen(items, Choice{Command: ToggleHidden})
-		if pause.checked != s.Paused || hide.checked != s.Hidden {
+		move, _ := chosen(items, Choice{Command: ToggleMove})
+		if pause.checked != s.Paused || hide.checked != s.Hidden || move.checked != s.Moving {
 			t.Errorf("for %+v pause is ticked %v and hiding %v", s, pause.checked, hide.checked)
 		}
 	}
@@ -64,6 +66,7 @@ func TestMenuNamesTheKeyOfEachChoiceThatHasOne(t *testing.T) {
 		TogglePause:  "Pause\tCtrl+Alt+P",
 		ToggleHidden: "Hide subtitles\tCtrl+Alt+T",
 		CopyLast:     "Copy the last pair\tCtrl+Alt+C",
+		ToggleMove:   "Move subtitles\tCtrl+Alt+M",
 		Quit:         "Exit",
 	}
 	for command, want := range cases {
@@ -124,6 +127,7 @@ func TestTipNamesTheLanguagesAndWhatIsGoingOn(t *testing.T) {
 		{Status{Language: "auto", Target: "ru", Starting: "LibreTranslate"}, "Sublayer: auto → ru, starting LibreTranslate"},
 		{Status{Language: "en", Target: "ru", Paused: true, Hidden: true}, "Sublayer: en → ru, paused, hidden"},
 		{Status{Language: "fr", Target: "ru", State: ui.Failed}, "Sublayer: fr → ru, the last phrase failed"},
+		{Status{Language: "fr", Target: "ru", Moving: true}, "Sublayer: fr → ru, moving"},
 	}
 
 	for _, c := range cases {

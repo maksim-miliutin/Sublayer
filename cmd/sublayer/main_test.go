@@ -19,7 +19,7 @@ var (
 
 var offline = machine{
 	settings: func() (settings.Settings, error) { return settings.Defaults(), nil },
-	remember: func(string) error { return nil },
+	update:   func(func(settings.Settings) settings.Settings) error { return nil },
 	servers: func(context.Context, settings.Settings, func(servers.Server)) (func() error, error) {
 		return func() error { return nil }, nil
 	},

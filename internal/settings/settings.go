@@ -35,6 +35,12 @@ type Settings struct {
 	Pairs    int     `json:"pairs"`
 	Phrases  Phrases `json:"phrases"`
 	Keys     Keys    `json:"keys"`
+	Corner   *Corner `json:"corner,omitempty"` // where the subtitles were moved to; absent leaves them at the bottom left
+}
+
+type Corner struct {
+	X int `json:"x"` // screen pixels of the bottom left corner of the subtitles
+	Y int `json:"y"`
 }
 
 type Server struct {
@@ -51,6 +57,7 @@ type Keys struct {
 	Show  string `json:"show"`
 	Pause string `json:"pause"`
 	Copy  string `json:"copy"`
+	Move  string `json:"move"`
 }
 
 type Phrases struct {
@@ -76,7 +83,7 @@ func Defaults() Settings {
 			EndPauseMS:  int(cut.EndPause / time.Millisecond),
 			MaxPhraseMS: int(cut.MaxPhrase / time.Millisecond),
 		},
-		Keys: Keys{Show: "Ctrl+Alt+T", Pause: "Ctrl+Alt+P", Copy: "Ctrl+Alt+C"},
+		Keys: Keys{Show: "Ctrl+Alt+T", Pause: "Ctrl+Alt+P", Copy: "Ctrl+Alt+C", Move: "Ctrl+Alt+M"},
 	}
 }
 
@@ -153,7 +160,7 @@ func (s Settings) check() error {
 
 func (k Keys) check() error {
 	held := map[hotkey.Combo]string{}
-	for _, key := range []struct{ name, text string }{{"show", k.Show}, {"pause", k.Pause}, {"copy", k.Copy}} {
+	for _, key := range []struct{ name, text string }{{"show", k.Show}, {"pause", k.Pause}, {"copy", k.Copy}, {"move", k.Move}} {
 		combo, err := hotkey.Parse(key.text)
 		if err != nil {
 			return fmt.Errorf("%w: keys.%s: %w", ErrInvalid, key.name, err)
