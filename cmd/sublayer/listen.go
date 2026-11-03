@@ -103,7 +103,7 @@ func listen(args []string, m machine) error {
 }
 
 func listenSpeakers(s settings.Settings, m machine) error {
-	stop, err := m.servers(s)
+	stop, err := serveUntilInterrupted(m, s)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,16 @@ func listenSpeakers(s settings.Settings, m machine) error {
 
 	fmt.Fprintln(os.Stderr, "listening to the speakers; each phrase shows its times and text with the translation under it, and in brackets how long each took; press Ctrl+C to stop")
 
-	return interpret(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, s)
+	v := voicesFor(s)
+
+	return interpret(pipeline.Config{
+		Source:      source,
+		Rate:        capture.Rate,
+		Waiting:     waitingPhrases,
+		Transcriber: v.whisper(s.Language),
+		Translator:  v.libre(s.Language),
+		Report:      show,
+	}, s)
 }
 
 func listenFile(path string, s settings.Settings, m machine) error {
@@ -132,23 +141,45 @@ func listenFile(path string, s settings.Settings, m machine) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	stop, err := m.servers(s)
+	stop, err := serveUntilInterrupted(m, s)
 	if err != nil {
 		return err
 	}
 	defer stop()
 
-	return interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, s)
+	v := voicesFor(s)
+
+	return interpret(pipeline.Config{
+		Source:      &recording{samples: samples},
+		Rate:        rate,
+		Transcriber: v.whisper(s.Language),
+		Translator:  v.libre(s.Language),
+		Report:      show,
+	}, s)
 }
 
 func interpret(c pipeline.Config, s settings.Settings) error {
-	client := localClient()
-
 	c.Phrases = s.Phrases.Config()
-	c.Transcriber = stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper.Server, whisperPath), Language: s.Language}, client)
-	c.Translator = translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: s.Language, Target: s.Target}, client)
 
 	return unlessClosed(pipeline.Run(context.Background(), c))
+}
+
+type voices struct {
+	whisper func(language string) stt.Transcriber
+	libre   func(language string) translate.Translator
+}
+
+func voicesFor(s settings.Settings) voices {
+	client := localClient()
+
+	return voices{
+		whisper: func(language string) stt.Transcriber {
+			return stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper.Server, whisperPath), Language: language}, client)
+		},
+		libre: func(language string) translate.Translator {
+			return translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: language, Target: s.Target}, client)
+		},
+	}
 }
 
 func endpoint(server settings.Server, path string) string {

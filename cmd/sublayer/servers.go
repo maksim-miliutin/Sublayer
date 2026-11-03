@@ -23,19 +23,16 @@ const (
 	askTimeout     = 300 * time.Millisecond
 )
 
-func startServers(s settings.Settings) (stop func() error, err error) {
+func startServers(ctx context.Context, s settings.Settings, starting func(servers.Server)) (stop func() error, err error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
 	running, err := servers.Start(ctx, servers.Config{
 		Answers:  answers,
 		Start:    servers.Launch,
-		Starting: func(server servers.Server) { fmt.Fprintf(os.Stderr, "starting %s: %s\n", server.Name, server.Program) },
+		Starting: starting,
 		Every:    askEvery,
 		Patience: serverPatience,
 	}, serversFor(s, filepath.Dir(exe), max(1, runtime.NumCPU()/2))...)
@@ -44,6 +41,17 @@ func startServers(s settings.Settings) (stop func() error, err error) {
 	}
 
 	return running.Stop, nil
+}
+
+func serveUntilInterrupted(m machine, s settings.Settings) (stop func() error, err error) {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	return m.servers(ctx, s, announce)
+}
+
+func announce(server servers.Server) {
+	fmt.Fprintf(os.Stderr, "starting %s: %s\n", server.Name, server.Program)
 }
 
 func withSettingsPath(err error) error {

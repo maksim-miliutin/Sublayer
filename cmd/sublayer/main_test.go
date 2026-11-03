@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
+	"github.com/maksim-miliutin/Sublayer/internal/servers"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
@@ -16,7 +19,9 @@ var (
 
 var offline = machine{
 	settings: func() (settings.Settings, error) { return settings.Defaults(), nil },
-	servers:  func(settings.Settings) (func() error, error) { return func() error { return nil }, nil },
+	servers: func(context.Context, settings.Settings, func(servers.Server)) (func() error, error) {
+		return func() error { return nil }, nil
+	},
 }
 
 func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
@@ -44,14 +49,26 @@ func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestRunMakesSureOfTheServersBeforeOpeningAnyDevice(t *testing.T) {
+func TestListenMakesSureOfTheServersBeforeOpeningTheSpeakers(t *testing.T) {
 	down := offline
-	down.servers = func(settings.Settings) (func() error, error) { return nil, errServersDown }
+	down.servers = func(context.Context, settings.Settings, func(servers.Server)) (func() error, error) {
+		return nil, errServersDown
+	}
 
-	for _, args := range [][]string{nil, {"-lang", "fr"}, {"listen"}} {
+	for _, args := range [][]string{{"listen"}, {"listen", "-lang", "en"}} {
 		if err := run(args, down); !errors.Is(err, errServersDown) {
 			t.Errorf("%q gave %v, want the servers failure", args, err)
 		}
+	}
+}
+
+func TestQuittingWhileTheServersStartIsNoFailure(t *testing.T) {
+	if err := unlessQuit(fmt.Errorf("servers: stopped waiting for LibreTranslate: %w", context.Canceled)); err != nil {
+		t.Errorf("quitting gave %v, want no failure", err)
+	}
+
+	if err := unlessQuit(errServersDown); !errors.Is(err, errServersDown) {
+		t.Errorf("a server down gave %v, want it passed on", err)
 	}
 }
 
