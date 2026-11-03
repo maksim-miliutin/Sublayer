@@ -75,6 +75,9 @@ func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 		"pause below zero":                `{"phrases": {"end_pause_ms": -1}}`,
 		"no phrase at all":                `{"phrases": {"max_phrase_ms": 0}}`,
 		"whisper started without a model": `{"whisper": {"model": ""}}`,
+		"a key without a modifier":        `{"keys": {"show": "T"}}`,
+		"one key for two things":          `{"keys": {"pause": "Ctrl+Alt+T"}}`,
+		"a copy key without a modifier":   `{"keys": {"copy": "C"}}`,
 		"speech as long as a phrase":      `{"phrases": {"min_speech_ms": 12000}}`,
 		"pause as long as a phrase":       `{"phrases": {"end_pause_ms": 12000}}`,
 	}
@@ -95,6 +98,7 @@ func TestParseTakesTheEdgesOfWhatItAllows(t *testing.T) {
 		`{"phrases": {"min_speech_ms": 1, "end_pause_ms": 1, "max_phrase_ms": 2}}`,
 		`{"whisper": {"program": "", "model": ""}}`,
 		`{"libretranslate": {"program": "C:/lt-venv/Scripts/libretranslate.exe"}}`,
+		`{"keys": {"show": "Ctrl+Shift+F9", "copy": "win+alt+c"}}`,
 	}
 
 	for _, file := range allowed {
@@ -131,6 +135,10 @@ func TestEncodeWritesNamesAPersonCanReadAndEdit(t *testing.T) {
 		`    "min_speech_ms": 300,`,
 		`    "end_pause_ms": 600,`,
 		`    "max_phrase_ms": 12000`,
+		`  "keys": {`,
+		`    "show": "Ctrl+Alt+T",`,
+		`    "pause": "Ctrl+Alt+P",`,
+		`    "copy": "Ctrl+Alt+C"`,
 	} {
 		if !strings.Contains(text, line+"\n") {
 			t.Errorf("the file lacks the line %q:\n%s", line, text)

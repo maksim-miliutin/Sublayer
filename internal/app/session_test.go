@@ -56,8 +56,10 @@ func (w *window) last(t *testing.T) ui.Frame {
 type panel struct {
 	statuses  []controls.Status
 	alerts    []string
+	copied    []string
 	fail      error
 	alertFail error
+	copyFail  error
 	closed    bool
 }
 
@@ -77,6 +79,16 @@ func (p *panel) Alert(text string) error {
 	}
 
 	p.alerts = append(p.alerts, text)
+
+	return nil
+}
+
+func (p *panel) Copy(text string) error {
+	if p.copyFail != nil {
+		return p.copyFail
+	}
+
+	p.copied = append(p.copied, text)
 
 	return nil
 }
@@ -370,6 +382,35 @@ func TestThePanelHearsOfAStatusOnlyWhenItChanges(t *testing.T) {
 
 	if got := len(p.statuses); got != 2 {
 		t.Errorf("the panel was shown %d statuses, want 2: not listening yet, then listening", got)
+	}
+}
+
+func TestCopyTakesTheLastPairOrNothingWhenThereIsNone(t *testing.T) {
+	p := &panel{}
+	s := NewSession(config(&window{}, p, 4))
+	s.Ready()
+
+	s.Choose(controls.Choice{Command: controls.CopyLast})
+	s.Report(said("Bonjour.", "Здравствуйте."))
+	s.Report(said("Merci.", "Спасибо."))
+	s.Choose(controls.Choice{Command: controls.CopyLast})
+	s.Report(pipeline.Result{Text: "Oui.", Err: translate.ErrNoAnswer})
+	s.Choose(controls.Choice{Command: controls.CopyLast})
+
+	if want := []string{"Merci.\nСпасибо.", "Oui."}; !slices.Equal(p.copied, want) {
+		t.Errorf("copied %q, want %q", p.copied, want)
+	}
+}
+
+func TestACopyThePanelCannotTakeEndsTheSession(t *testing.T) {
+	s := NewSession(config(&window{}, &panel{copyFail: errBroken}, 4))
+	s.Ready()
+
+	s.Report(said("Oui.", "Да."))
+	s.Choose(controls.Choice{Command: controls.CopyLast})
+
+	if err := s.Close(); !errors.Is(err, errBroken) {
+		t.Errorf("closing gave %v, want the panel's failure", err)
 	}
 }
 

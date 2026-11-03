@@ -3,6 +3,7 @@ package controls
 import (
 	"errors"
 
+	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
@@ -17,12 +18,23 @@ const (
 	TogglePause Command = iota
 	ToggleHidden
 	ChooseLanguage
+	CopyLast
 	Quit
 )
 
 type Choice struct {
 	Command  Command
 	Language string // the one chosen by ChooseLanguage
+}
+
+type Key struct {
+	Combo  hotkey.Combo
+	Choice Choice
+}
+
+type Config struct {
+	Languages []string
+	Keys      []Key
 }
 
 type Status struct {
@@ -37,6 +49,7 @@ type Status struct {
 type Panel interface {
 	Show(Status) error
 	Alert(text string) error
+	Copy(text string) error
 	Choices() <-chan Choice
 	Close() error
 }

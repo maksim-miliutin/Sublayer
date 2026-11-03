@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
@@ -33,6 +34,7 @@ type Settings struct {
 	Libre    Server  `json:"libretranslate"`
 	Pairs    int     `json:"pairs"`
 	Phrases  Phrases `json:"phrases"`
+	Keys     Keys    `json:"keys"`
 }
 
 type Server struct {
@@ -43,6 +45,12 @@ type Server struct {
 type Whisper struct {
 	Server
 	Model string `json:"model"`
+}
+
+type Keys struct {
+	Show  string `json:"show"`
+	Pause string `json:"pause"`
+	Copy  string `json:"copy"`
 }
 
 type Phrases struct {
@@ -68,6 +76,7 @@ func Defaults() Settings {
 			EndPauseMS:  int(cut.EndPause / time.Millisecond),
 			MaxPhraseMS: int(cut.MaxPhrase / time.Millisecond),
 		},
+		Keys: Keys{Show: "Ctrl+Alt+T", Pause: "Ctrl+Alt+P", Copy: "Ctrl+Alt+C"},
 	}
 }
 
@@ -138,7 +147,25 @@ func (s Settings) check() error {
 		checkAddress("whisper", s.Whisper.Address),
 		checkAddress("libretranslate", s.Libre.Address),
 		s.Phrases.check(),
+		s.Keys.check(),
 	)
+}
+
+func (k Keys) check() error {
+	held := map[hotkey.Combo]string{}
+	for _, key := range []struct{ name, text string }{{"show", k.Show}, {"pause", k.Pause}, {"copy", k.Copy}} {
+		combo, err := hotkey.Parse(key.text)
+		if err != nil {
+			return fmt.Errorf("%w: keys.%s: %w", ErrInvalid, key.name, err)
+		}
+
+		if other, taken := held[combo]; taken {
+			return fmt.Errorf("%w: keys.%s and keys.%s are both %s", ErrInvalid, other, key.name, combo)
+		}
+		held[combo] = key.name
+	}
+
+	return nil
 }
 
 func checkAddress(server, address string) error {

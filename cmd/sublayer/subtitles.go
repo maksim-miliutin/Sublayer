@@ -24,7 +24,12 @@ func subtitles(args []string, m machine) (err error) {
 		return errUsage
 	}
 
-	panel, err := controls.Open(settings.Languages)
+	keys, err := keysFor(s.Keys)
+	if err != nil {
+		return err
+	}
+
+	panel, err := controls.Open(controls.Config{Languages: settings.Languages, Keys: keys})
 	if err != nil {
 		return err
 	}

@@ -123,6 +123,8 @@ func (s *Session) Choose(c controls.Choice) {
 		s.toggle(&s.hidden)
 	case controls.ChooseLanguage:
 		s.speak(c.Language)
+	case controls.CopyLast:
+		s.copyLast()
 	case controls.Quit:
 		s.Quit()
 	}
@@ -194,6 +196,29 @@ func (s *Session) speak(language string) {
 
 	if err := s.config.Remember(language); err != nil {
 		s.alert(err)
+	}
+}
+
+func (s *Session) copyLast() {
+	s.mu.Lock()
+	if len(s.pairs) == 0 || s.config.Panel == nil {
+		s.mu.Unlock()
+
+		return
+	}
+
+	last := s.pairs[len(s.pairs)-1]
+	s.mu.Unlock()
+
+	text := last.Original
+	if last.Translation != "" {
+		text += "\n" + last.Translation
+	}
+
+	if err := s.config.Panel.Copy(text); err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.fail(err)
 	}
 }
 

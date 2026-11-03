@@ -2,6 +2,6 @@
 
 package controls
 
-func Open([]string) (Panel, error) {
+func Open(Config) (Panel, error) {
 	return nil, ErrUnsupported
 }
