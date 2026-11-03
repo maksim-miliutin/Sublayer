@@ -7,18 +7,19 @@ import (
 	"testing"
 
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
+	"github.com/maksim-miliutin/Sublayer/internal/controls"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
-// Away from Windows the window and the speakers refuse at once, so a command can be
-// followed to the device it opens first without anything being opened.
+// Away from Windows the tray, the window and the speakers refuse at once, so a command
+// can be followed to the device it opens first without anything being opened.
 func TestRunTakesEachCommandToTheDeviceItOpensFirst(t *testing.T) {
 	cases := []struct {
 		args []string
 		want error
 	}{
-		{nil, ui.ErrUnsupported},
-		{[]string{"-lang", "fr"}, ui.ErrUnsupported},
+		{nil, controls.ErrUnsupported},
+		{[]string{"-lang", "fr"}, controls.ErrUnsupported},
 		{[]string{"overlay"}, ui.ErrUnsupported},
 		{[]string{"listen"}, capture.ErrUnsupported},
 		{[]string{"listen", "-lang", "en"}, capture.ErrUnsupported},

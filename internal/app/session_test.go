@@ -446,6 +446,21 @@ func TestTheFirstFailureIsTheOneClosingTells(t *testing.T) {
 	}
 }
 
+func TestSessionShowsNothingOnceClosed(t *testing.T) {
+	w, p := &window{}, &panel{}
+	s := NewSession(config(w, p, 4))
+	s.Ready()
+
+	s.Close()
+	frames, statuses := len(w.frames), len(p.statuses)
+	s.Report(said("Oui.", "Да."))
+	s.Choose(controls.Choice{Command: controls.TogglePause})
+
+	if len(w.frames) != frames || len(p.statuses) != statuses {
+		t.Errorf("after closing, the window got %d more frames and the panel %d more statuses, want none", len(w.frames)-frames, len(p.statuses)-statuses)
+	}
+}
+
 func TestSessionClosesTheWindowAndPassesOnWhatItSays(t *testing.T) {
 	w := &window{closeErr: errBroken}
 	s := listening(w, 4)

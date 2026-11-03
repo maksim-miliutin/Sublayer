@@ -39,6 +39,7 @@ type Session struct {
 	starting  string
 	told      controls.Status
 	err       error
+	closed    bool
 }
 
 func NewSession(c Config) *Session {
@@ -151,16 +152,19 @@ func (s *Session) Translator(from func(language string) translate.Translator) tr
 
 func (s *Session) Close() error {
 	s.Quit()
+
+	s.mu.Lock()
+	s.closed = true
+	failure := s.err
+	s.mu.Unlock()
+
 	closed := s.config.Window.Close()
 	if s.config.Panel != nil {
 		closed = errors.Join(closed, s.config.Panel.Close())
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.err != nil {
-		return s.err
+	if failure != nil {
+		return failure
 	}
 
 	return closed
@@ -216,7 +220,7 @@ func (s *Session) held() bool {
 }
 
 func (s *Session) show() {
-	if s.err != nil {
+	if s.err != nil || s.closed {
 		return
 	}
 
