@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/controls"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
@@ -465,6 +466,74 @@ func TestACornerThatCannotBeKeptIsTold(t *testing.T) {
 
 	if len(p.alerts) != 1 || p.alerts[0] != errReadOnly.Error() {
 		t.Errorf("alerts %q, want the failure told", p.alerts)
+	}
+}
+
+type clock struct {
+	now time.Time
+}
+
+func (c *clock) read() time.Time {
+	return c.now
+}
+
+func (c *clock) pass(d time.Duration) {
+	c.now = c.now.Add(d)
+}
+
+func TestPairsLeaveOnceTheyLingeredTheirTime(t *testing.T) {
+	w, at := &window{}, &clock{now: time.Unix(1000, 0)}
+	c := config(w, &panel{}, 4)
+	c.Linger, c.Now = 10*time.Second, at.read
+	s := NewSession(c)
+	s.Ready()
+
+	s.Report(said("Un.", "Один."))
+	at.pass(6 * time.Second)
+	s.Report(said("Deux.", "Два."))
+
+	shown := func() []string {
+		var texts []string
+		for _, p := range w.last(t).Pairs {
+			texts = append(texts, p.Original)
+		}
+
+		return texts
+	}
+
+	at.pass(3 * time.Second)
+	frames := len(w.frames)
+	s.Expire()
+	if len(w.frames) != frames || !slices.Equal(shown(), []string{"Un.", "Deux."}) {
+		t.Errorf("at 9 s got %q in %d new frames, want both pairs and no new frame", shown(), len(w.frames)-frames)
+	}
+
+	at.pass(time.Second)
+	s.Expire()
+	if !slices.Equal(shown(), []string{"Deux."}) {
+		t.Errorf("at 10 s got %q, want Deux. alone", shown())
+	}
+
+	at.pass(6 * time.Second)
+	s.Expire()
+	if got := shown(); len(got) != 0 {
+		t.Errorf("at 16 s got %q, want nothing", got)
+	}
+}
+
+func TestALingerOfZeroKeepsPairsUntilNewerOnesPushThemOut(t *testing.T) {
+	w, at := &window{}, &clock{now: time.Unix(1000, 0)}
+	c := config(w, &panel{}, 4)
+	c.Now = at.read
+	s := NewSession(c)
+	s.Ready()
+
+	s.Report(said("Oui.", "Да."))
+	at.pass(time.Hour)
+	s.Expire()
+
+	if got := len(w.last(t).Pairs); got != 1 {
+		t.Errorf("an hour later %d pairs show, want the one kept", got)
 	}
 }
 

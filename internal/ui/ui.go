@@ -28,6 +28,17 @@ type Frame struct {
 	Moving bool
 }
 
+type Look struct {
+	TextPoints        int // the translation's size; the original is drawn three quarters of it
+	WidthPercent      int // of the screen's working area
+	BackgroundPercent int // how opaque the plates are
+}
+
+type Options struct {
+	Corner *Point // nil puts the subtitles at the bottom left of the screen
+	Look   Look
+}
+
 type Point struct {
 	X, Y int // screen pixels
 }

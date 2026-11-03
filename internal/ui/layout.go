@@ -22,6 +22,12 @@ func scaledMetrics(dpi int) metrics {
 	return metrics{pad: px(10), gap: px(6), line: px(2), radius: px(8), dot: px(10), margin: px(16)}
 }
 
+func (l Look) fontPixels(dpi int) (original, translation int) {
+	translation = (l.TextPoints*dpi + 36) / 72 // 72 points make an inch, and adding half of it rounds to the nearest pixel
+
+	return translation * 3 / 4, translation
+}
+
 type heights struct {
 	original, translation int
 }
@@ -49,10 +55,8 @@ type scene struct {
 }
 
 const (
-	widthShare = 0.3
-	plateAlpha = 0.85
-	fadeStep   = 0.15
-	fadeFloor  = 0.45
+	fadeStep  = 0.15
+	fadeFloor = 0.45
 )
 
 var (
@@ -98,17 +102,19 @@ func (m metrics) plateHeight(h heights) int {
 
 type layout struct {
 	metrics
-	work      rect
-	width     int
-	maxHeight int
+	work       rect
+	width      int
+	maxHeight  int
+	plateAlpha float64
 }
 
-func layoutFor(work rect, m metrics) layout {
+func layoutFor(work rect, m metrics, look Look) layout {
 	return layout{
-		metrics:   m,
-		work:      work,
-		width:     int(float64(work.w) * widthShare),
-		maxHeight: work.h - 2*m.margin,
+		metrics:    m,
+		work:       work,
+		width:      work.w * look.WidthPercent / 100,
+		maxHeight:  work.h - 2*m.margin,
+		plateAlpha: float64(look.BackgroundPercent) / 100,
 	}
 }
 
@@ -143,7 +149,7 @@ func (l layout) arrange(f Frame, measured []heights) scene {
 		y += l.gap
 
 		area := rect{x: 0, y: y, w: l.width, h: l.plateHeight(h)}
-		s.plates = append(s.plates, plate{area: area, alpha: plateAlpha})
+		s.plates = append(s.plates, plate{area: area, alpha: l.plateAlpha})
 
 		inner := rect{x: l.pad, y: y + l.pad, w: l.textWidth()}
 		if h.original > 0 {

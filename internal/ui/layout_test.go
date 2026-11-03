@@ -7,6 +7,8 @@ import (
 
 var m96 = scaledMetrics(96)
 
+var classic = Look{TextPoints: 15, WidthPercent: 30, BackgroundPercent: 85}
+
 func numbered(n int) []Pair {
 	out := make([]Pair, n)
 	for i := range out {
@@ -17,7 +19,7 @@ func numbered(n int) []Pair {
 }
 
 func space(width, maxHeight int) layout {
-	return layout{metrics: m96, width: width, maxHeight: maxHeight}
+	return layout{metrics: m96, width: width, maxHeight: maxHeight, plateAlpha: 0.85}
 }
 
 func even(n, original, translation int) []heights {
@@ -107,8 +109,8 @@ func TestArrangeKeepsEveryPlateEquallyDark(t *testing.T) {
 	s := space(400, 2000).arrange(Frame{Pairs: numbered(6)}, even(6, 18, 26))
 
 	for i, p := range s.plates {
-		if p.alpha != plateAlpha {
-			t.Errorf("plate %d has alpha %v, want %v", i, p.alpha, plateAlpha)
+		if p.alpha != 0.85 {
+			t.Errorf("plate %d has alpha %v, want 0.85", i, p.alpha)
 		}
 	}
 }
@@ -197,7 +199,7 @@ func TestPlaceSitsAtTheBottomLeftOfTheWorkArea(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		got := layoutFor(c.work, m96).place(300)
+		got := layoutFor(c.work, m96, classic).place(300)
 
 		if got.x != c.work.x+m96.margin {
 			t.Errorf("%s: left edge at %d, want %d", c.name, got.x, c.work.x+m96.margin)
@@ -216,7 +218,7 @@ func TestPlaceSitsAtTheBottomLeftOfTheWorkArea(t *testing.T) {
 func TestLayoutLeavesAMarginAboveAndBelow(t *testing.T) {
 	work := rect{x: 0, y: 40, w: 1920, h: 1000}
 
-	if got, want := layoutFor(work, m96).maxHeight, 1000-2*m96.margin; got != want {
+	if got, want := layoutFor(work, m96, classic).maxHeight, 1000-2*m96.margin; got != want {
 		t.Errorf("the overlay may grow to %d, want %d", got, want)
 	}
 }
@@ -230,7 +232,7 @@ func TestMetricsGrowWithTheScreenDensity(t *testing.T) {
 }
 
 func TestAtPutsTheSubtitlesOnTheirCornerOrWhereTheyStandByDefault(t *testing.T) {
-	l := layoutFor(rect{x: 0, y: 0, w: 1920, h: 1040}, scaledMetrics(96))
+	l := layoutFor(rect{x: 0, y: 0, w: 1920, h: 1040}, scaledMetrics(96), classic)
 
 	if got, want := l.at(200, nil), l.place(200); got != want {
 		t.Errorf("without a corner got %+v, want the default %+v", got, want)
@@ -238,6 +240,34 @@ func TestAtPutsTheSubtitlesOnTheirCornerOrWhereTheyStandByDefault(t *testing.T) 
 
 	if got := l.at(200, &Point{X: 700, Y: 900}); got != (rect{x: 700, y: 700, w: l.width, h: 200}) {
 		t.Errorf("on a corner got %+v, want the bottom left at 700, 900", got)
+	}
+}
+
+func TestLayoutTakesItsWidthAndPlatesFromTheLook(t *testing.T) {
+	l := layoutFor(rect{w: 1920, h: 1040}, m96, Look{TextPoints: 12, WidthPercent: 25, BackgroundPercent: 60})
+	s := l.arrange(Frame{Pairs: numbered(2)}, even(2, 18, 26))
+
+	if l.width != 480 || len(s.plates) != 2 || s.plates[0].alpha != 0.6 {
+		t.Errorf("got width %d and plates %+v, want 480 wide plates at alpha 0.6", l.width, s.plates)
+	}
+}
+
+func TestFontsTakeThePointsOfTheLookAtTheScreenDensity(t *testing.T) {
+	cases := []struct {
+		points, dpi           int
+		original, translation int
+	}{
+		{12, 96, 12, 16},
+		{10, 144, 15, 20},
+		{24, 120, 30, 40},
+		{11, 96, 11, 15},
+	}
+
+	for _, c := range cases {
+		original, translation := Look{TextPoints: c.points}.fontPixels(c.dpi)
+		if original != c.original || translation != c.translation {
+			t.Errorf("%d points at %d dpi gave %d and %d px, want %d and %d", c.points, c.dpi, original, translation, c.original, c.translation)
+		}
 	}
 }
 

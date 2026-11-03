@@ -91,8 +91,8 @@ func TestSampleFrameShowsTheLatestPairsOldestFirst(t *testing.T) {
 	}{
 		{0, samples[:1]},
 		{2, samples[:3]},
-		{5, samples[2:6]},
-		{len(samples), append(slices.Clone(samples[len(samples)-3:]), samples[0])},
+		{5, samples[3:6]},
+		{len(samples), append(slices.Clone(samples[len(samples)-2:]), samples[0])},
 	}
 
 	for _, c := range cases {

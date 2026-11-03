@@ -188,6 +188,7 @@ type window struct {
 	renderer *renderer
 	hwnd     uintptr
 	moving   bool
+	look     Look
 	mu       sync.Mutex
 	corner   *Point
 	placed   rect
@@ -197,13 +198,13 @@ type window struct {
 	done     chan struct{}
 }
 
-func Open(corner *Point) (Window, error) {
+func Open(o Options) (Window, error) {
 	u, err := loadUser()
 	if err != nil {
 		return nil, err
 	}
 
-	w := &window{user: u, corner: corner, done: make(chan struct{})}
+	w := &window{user: u, look: o.Look, corner: o.Corner, done: make(chan struct{})}
 	ready := make(chan error)
 	go w.run(ready)
 
@@ -246,7 +247,7 @@ func (w *window) create() error {
 	}
 	dpi, _, _ := syscall.SyscallN(w.user.getDpiForSystem)
 
-	r, err := newRenderer(int(dpi))
+	r, err := newRenderer(int(dpi), w.look)
 	if err != nil {
 		return err
 	}
@@ -355,7 +356,7 @@ func (w *window) refresh() error {
 	}
 
 	work := rect{x: int(area.left), y: int(area.top), w: int(area.right - area.left), h: int(area.bottom - area.top)}
-	l := layoutFor(work, w.renderer.metrics)
+	l := layoutFor(work, w.renderer.metrics, w.look)
 
 	c, err := w.renderer.draw(f, l)
 	if err != nil {

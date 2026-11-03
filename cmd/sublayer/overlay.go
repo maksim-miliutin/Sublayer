@@ -24,7 +24,7 @@ var samples = []ui.Pair{
 var sampleStates = []ui.State{ui.Listening, ui.Recognizing, ui.Listening, ui.Paused, ui.Listening, ui.Failed}
 
 func overlay() error {
-	window, err := ui.Open(nil)
+	window, err := ui.Open(ui.Options{Look: lookOf(settings.Defaults())})
 	if err != nil {
 		return err
 	}
