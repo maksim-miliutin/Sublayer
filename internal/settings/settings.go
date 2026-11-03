@@ -29,7 +29,7 @@ const (
 type Settings struct {
 	Language string  `json:"language"`
 	Target   string  `json:"target"`
-	Whisper  Server  `json:"whisper"`
+	Whisper  Whisper `json:"whisper"`
 	Libre    Server  `json:"libretranslate"`
 	Pairs    int     `json:"pairs"`
 	Phrases  Phrases `json:"phrases"`
@@ -37,6 +37,12 @@ type Settings struct {
 
 type Server struct {
 	Address string `json:"address"`
+	Program string `json:"program"` // started when nothing answers at the address; empty leaves that to you
+}
+
+type Whisper struct {
+	Server
+	Model string `json:"model"`
 }
 
 type Phrases struct {
@@ -51,15 +57,29 @@ func Defaults() Settings {
 	return Settings{
 		Language: "auto",
 		Target:   "ru",
-		Whisper:  Server{Address: "127.0.0.1:8178"},
-		Libre:    Server{Address: "127.0.0.1:5000"},
-		Pairs:    4,
+		Whisper: Whisper{
+			Server: Server{Address: "127.0.0.1:8178", Program: "whisper-server.exe"},
+			Model:  "models/ggml-large-v3-turbo.bin",
+		},
+		Libre: Server{Address: "127.0.0.1:5000"},
+		Pairs: 4,
 		Phrases: Phrases{
 			MinSpeechMS: int(cut.MinSpeech / time.Millisecond),
 			EndPauseMS:  int(cut.EndPause / time.Millisecond),
 			MaxPhraseMS: int(cut.MaxPhrase / time.Millisecond),
 		},
 	}
+}
+
+func Codes() []string {
+	var codes []string
+	for _, code := range slices.Concat(Languages, Targets) {
+		if code != "auto" && !slices.Contains(codes, code) {
+			codes = append(codes, code)
+		}
+	}
+
+	return codes
 }
 
 func (p Phrases) Config() vad.Config {
@@ -110,6 +130,8 @@ func (s Settings) check() error {
 		return fmt.Errorf("%w: target %q, want one of %s", ErrInvalid, s.Target, strings.Join(Targets, ", "))
 	case s.Pairs < fewestPairs || s.Pairs > mostPairs:
 		return fmt.Errorf("%w: pairs %d, want %d to %d", ErrInvalid, s.Pairs, fewestPairs, mostPairs)
+	case s.Whisper.Program != "" && s.Whisper.Model == "":
+		return fmt.Errorf("%w: whisper.model is empty, want the model whisper.program loads", ErrInvalid)
 	}
 
 	return errors.Join(

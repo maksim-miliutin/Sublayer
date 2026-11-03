@@ -2,6 +2,7 @@ package settings
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,26 +56,27 @@ func TestParseReadsAFileThatStartsWithAByteOrderMark(t *testing.T) {
 
 func TestParseRefusesSettingsItCannotUse(t *testing.T) {
 	refused := map[string]string{
-		"broken json":                `{"language": "fr"`,
-		"empty file":                 ``,
-		"two documents":              `{} {}`,
-		"misspelt name":              `{"langauge": "fr"}`,
-		"wrong type":                 `{"pairs": "four"}`,
-		"unknown language":           `{"language": "de"}`,
-		"unknown target":             `{"target": "fr"}`,
-		"too few pairs":              `{"pairs": 2}`,
-		"too many pairs":             `{"pairs": 7}`,
-		"address without a port":     `{"whisper": {"address": "127.0.0.1"}}`,
-		"address without a host":     `{"libretranslate": {"address": ":5000"}}`,
-		"port named, not numbered":   `{"libretranslate": {"address": "localhost:http"}}`,
-		"port zero":                  `{"whisper": {"address": "127.0.0.1:0"}}`,
-		"port past the last":         `{"whisper": {"address": "127.0.0.1:65536"}}`,
-		"no speech needed":           `{"phrases": {"min_speech_ms": 0}}`,
-		"no pause needed":            `{"phrases": {"end_pause_ms": 0}}`,
-		"pause below zero":           `{"phrases": {"end_pause_ms": -1}}`,
-		"no phrase at all":           `{"phrases": {"max_phrase_ms": 0}}`,
-		"speech as long as a phrase": `{"phrases": {"min_speech_ms": 12000}}`,
-		"pause as long as a phrase":  `{"phrases": {"end_pause_ms": 12000}}`,
+		"broken json":                     `{"language": "fr"`,
+		"empty file":                      ``,
+		"two documents":                   `{} {}`,
+		"misspelt name":                   `{"langauge": "fr"}`,
+		"wrong type":                      `{"pairs": "four"}`,
+		"unknown language":                `{"language": "de"}`,
+		"unknown target":                  `{"target": "fr"}`,
+		"too few pairs":                   `{"pairs": 2}`,
+		"too many pairs":                  `{"pairs": 7}`,
+		"address without a port":          `{"whisper": {"address": "127.0.0.1"}}`,
+		"address without a host":          `{"libretranslate": {"address": ":5000"}}`,
+		"port named, not numbered":        `{"libretranslate": {"address": "localhost:http"}}`,
+		"port zero":                       `{"whisper": {"address": "127.0.0.1:0"}}`,
+		"port past the last":              `{"whisper": {"address": "127.0.0.1:65536"}}`,
+		"no speech needed":                `{"phrases": {"min_speech_ms": 0}}`,
+		"no pause needed":                 `{"phrases": {"end_pause_ms": 0}}`,
+		"pause below zero":                `{"phrases": {"end_pause_ms": -1}}`,
+		"no phrase at all":                `{"phrases": {"max_phrase_ms": 0}}`,
+		"whisper started without a model": `{"whisper": {"model": ""}}`,
+		"speech as long as a phrase":      `{"phrases": {"min_speech_ms": 12000}}`,
+		"pause as long as a phrase":       `{"phrases": {"end_pause_ms": 12000}}`,
 	}
 
 	for name, file := range refused {
@@ -91,12 +93,20 @@ func TestParseTakesTheEdgesOfWhatItAllows(t *testing.T) {
 		`{"target": "en", "language": "fr"}`,
 		`{"whisper": {"address": "localhost:1"}, "libretranslate": {"address": "[::1]:65535"}}`,
 		`{"phrases": {"min_speech_ms": 1, "end_pause_ms": 1, "max_phrase_ms": 2}}`,
+		`{"whisper": {"program": "", "model": ""}}`,
+		`{"libretranslate": {"program": "C:/lt-venv/Scripts/libretranslate.exe"}}`,
 	}
 
 	for _, file := range allowed {
 		if _, err := Parse([]byte(file)); err != nil {
 			t.Errorf("%s: got %v, want it taken", file, err)
 		}
+	}
+}
+
+func TestCodesNameEachLanguageOnceAndLeaveAutoOut(t *testing.T) {
+	if got := Codes(); !slices.Equal(got, []string{"fr", "en", "ru"}) {
+		t.Errorf("got %q, want fr, en and ru", got)
 	}
 }
 
@@ -111,9 +121,12 @@ func TestEncodeWritesNamesAPersonCanReadAndEdit(t *testing.T) {
 		`  "language": "auto",`,
 		`  "target": "ru",`,
 		`  "whisper": {`,
-		`    "address": "127.0.0.1:8178"`,
+		`    "address": "127.0.0.1:8178",`,
+		`    "program": "whisper-server.exe",`,
+		`    "model": "models/ggml-large-v3-turbo.bin"`,
 		`  "libretranslate": {`,
-		`    "address": "127.0.0.1:5000"`,
+		`    "address": "127.0.0.1:5000",`,
+		`    "program": ""`,
 		`  "pairs": 4,`,
 		`    "min_speech_ms": 300,`,
 		`    "end_pause_ms": 600,`,

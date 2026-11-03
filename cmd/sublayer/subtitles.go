@@ -21,6 +21,12 @@ func subtitles(args []string, m machine) error {
 		return errUsage
 	}
 
+	stop, err := m.servers(s)
+	if err != nil {
+		return err
+	}
+	defer stop()
+
 	window, err := ui.Open()
 	if err != nil {
 		return err
