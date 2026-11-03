@@ -64,12 +64,13 @@ func TestTheLanguageAskedForWinsOverTheSettings(t *testing.T) {
 }
 
 func TestSettleLaysTheAskedLanguageOverTheSettings(t *testing.T) {
-	inEnglish := machine{settings: func() (settings.Settings, error) {
+	inEnglish := offline
+	inEnglish.settings = func() (settings.Settings, error) {
 		s := settings.Defaults()
 		s.Language = "en"
 
 		return s, nil
-	}}
+	}
 
 	if _, s, err := settle([]string{"-lang", "fr"}, inEnglish); err != nil || s.Language != "fr" {
 		t.Errorf("asked for fr over en, got %q, %v", s.Language, err)

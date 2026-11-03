@@ -96,13 +96,19 @@ func listen(args []string, m machine) error {
 	}
 
 	if asked.file != "" {
-		return listenFile(asked.file, s)
+		return listenFile(asked.file, s, m)
 	}
 
-	return listenSpeakers(s)
+	return listenSpeakers(s, m)
 }
 
-func listenSpeakers(s settings.Settings) error {
+func listenSpeakers(s settings.Settings, m machine) error {
+	stop, err := m.servers(s)
+	if err != nil {
+		return err
+	}
+	defer stop()
+
 	source, err := capture.Open()
 	if err != nil {
 		return err
@@ -115,7 +121,7 @@ func listenSpeakers(s settings.Settings) error {
 	return interpret(pipeline.Config{Source: source, Rate: capture.Rate, Waiting: waitingPhrases, Report: show}, s)
 }
 
-func listenFile(path string, s settings.Settings) error {
+func listenFile(path string, s settings.Settings, m machine) error {
 	file, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -126,6 +132,12 @@ func listenFile(path string, s settings.Settings) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
+	stop, err := m.servers(s)
+	if err != nil {
+		return err
+	}
+	defer stop()
+
 	return interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: show}, s)
 }
 
@@ -133,7 +145,7 @@ func interpret(c pipeline.Config, s settings.Settings) error {
 	client := localClient()
 
 	c.Phrases = s.Phrases.Config()
-	c.Transcriber = stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper, whisperPath), Language: s.Language}, client)
+	c.Transcriber = stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper.Server, whisperPath), Language: s.Language}, client)
 	c.Translator = translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: s.Language, Target: s.Target}, client)
 
 	return unlessClosed(pipeline.Run(context.Background(), c))

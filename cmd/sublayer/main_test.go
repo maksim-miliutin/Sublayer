@@ -9,9 +9,15 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
-var errUnreadable = errors.New("settings: the file could not be read")
+var (
+	errUnreadable  = errors.New("settings: the file could not be read")
+	errServersDown = errors.New("servers: nothing answers and no program is set to start it")
+)
 
-var offline = machine{settings: func() (settings.Settings, error) { return settings.Defaults(), nil }}
+var offline = machine{
+	settings: func() (settings.Settings, error) { return settings.Defaults(), nil },
+	servers:  func(settings.Settings) (func() error, error) { return func() error { return nil }, nil },
+}
 
 func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	refused := [][]string{
@@ -38,8 +44,20 @@ func TestRunRefusesWhatItDoesNotKnow(t *testing.T) {
 	}
 }
 
+func TestRunMakesSureOfTheServersBeforeOpeningAnyDevice(t *testing.T) {
+	down := offline
+	down.servers = func(settings.Settings) (func() error, error) { return nil, errServersDown }
+
+	for _, args := range [][]string{nil, {"-lang", "fr"}, {"listen"}} {
+		if err := run(args, down); !errors.Is(err, errServersDown) {
+			t.Errorf("%q gave %v, want the servers failure", args, err)
+		}
+	}
+}
+
 func TestRunReadsTheSettingsBeforeOpeningAnyDevice(t *testing.T) {
-	unreadable := machine{settings: func() (settings.Settings, error) { return settings.Settings{}, errUnreadable }}
+	unreadable := offline
+	unreadable.settings = func() (settings.Settings, error) { return settings.Settings{}, errUnreadable }
 
 	for _, args := range [][]string{nil, {"-lang", "fr"}, {"listen"}, {"listen", "a.wav"}} {
 		if err := run(args, unreadable); !errors.Is(err, errUnreadable) {

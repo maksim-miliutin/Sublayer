@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -38,7 +39,13 @@ func loadSettings() (settings.Settings, error) {
 		return settings.Settings{}, fmt.Errorf("%s: %w", path, err)
 	}
 
-	return s, nil
+	canonical, err := settings.Encode(s)
+	if err != nil || bytes.Equal(canonical, file) {
+		return s, err
+	}
+
+	// Written back whole, the file shows every setting there is, even one added after it was made.
+	return s, writeSettings(path, s)
 }
 
 func writeSettings(path string, s settings.Settings) error {
