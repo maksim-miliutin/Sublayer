@@ -45,8 +45,11 @@ window and tells of a failure in a message box; started from a console, it keeps
 there, and Ctrl+C stops it too.
 
 Keys work over every window: Ctrl+Alt+T shows or hides the subtitles, Ctrl+Alt+P pauses
-and resumes the listening, and Ctrl+Alt+C copies the last pair. The tray menu names them
-too, and a key another program already holds is told about in a notification.
+and resumes the listening, and Ctrl+Alt+C copies the last pair. Ctrl+Alt+M lets the
+subtitles be moved: clicks stop passing through them, any plate can be dragged, and the
+same keys again fix them where they are, which the next start remembers. The tray menu
+names the keys too, and a key another program already holds is told about in a
+notification.
 
 `-lang fr` or `-lang en` names the language the other side speaks for this run, and
 `-lang auto` lets each phrase tell. `sublayer listen` prints the same pairs in the console
@@ -59,7 +62,8 @@ there on the first run. The file names the language the other side speaks and th
 translate into; for each server, the address it listens on and the program that starts
 it, with the model whisper-server loads; how many pairs the overlay shows, from 3 to 6;
 how speech is cut into phrases: the shortest speech that counts, the pause that ends a
-phrase and the longest phrase, in milliseconds; and the keys, written as `Ctrl+Alt+T`. A
+phrase and the longest phrase, in milliseconds; the keys, written as `Ctrl+Alt+T`; and,
+once the subtitles were moved, the screen corner they were moved to. A
 relative path is taken from the folder of `sublayer.exe`, and forward slashes spare
 doubling every backslash:
 

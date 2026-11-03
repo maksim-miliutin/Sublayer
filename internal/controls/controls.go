@@ -19,6 +19,7 @@ const (
 	ToggleHidden
 	ChooseLanguage
 	CopyLast
+	ToggleMove
 	Quit
 )
 
@@ -43,6 +44,7 @@ type Status struct {
 	Target   string
 	Paused   bool
 	Hidden   bool
+	Moving   bool
 	Starting string // the server Sublayer is starting; empty once it listens
 }
 

@@ -23,6 +23,8 @@ type Config struct {
 	Languages []string
 	Target    string
 	Remember  func(language string) error // keeps a chosen language for the next start; nil keeps none
+	Place     func(ui.Point) error        // keeps where the subtitles were moved to; nil keeps nothing
+	MoveHint  string
 }
 
 type Session struct {
@@ -35,6 +37,7 @@ type Session struct {
 	listening bool
 	paused    bool
 	hidden    bool
+	moving    bool
 	language  string
 	starting  string
 	told      controls.Status
@@ -125,6 +128,8 @@ func (s *Session) Choose(c controls.Choice) {
 		s.speak(c.Language)
 	case controls.CopyLast:
 		s.copyLast()
+	case controls.ToggleMove:
+		s.toggleMove()
 	case controls.Quit:
 		s.Quit()
 	}
@@ -199,6 +204,22 @@ func (s *Session) speak(language string) {
 	}
 }
 
+func (s *Session) toggleMove() {
+	s.mu.Lock()
+	s.moving = !s.moving
+	moving := s.moving
+	s.show()
+	s.mu.Unlock()
+
+	if moving || s.config.Place == nil {
+		return
+	}
+
+	if err := s.config.Place(s.config.Window.Corner()); err != nil {
+		s.alert(err)
+	}
+}
+
 func (s *Session) copyLast() {
 	s.mu.Lock()
 	if len(s.pairs) == 0 || s.config.Panel == nil {
@@ -254,13 +275,18 @@ func (s *Session) show() {
 		state = ui.Paused
 	}
 
-	if err := s.config.Window.Show(ui.Frame{Pairs: s.pairs, State: state, Hidden: s.hidden}); err != nil {
+	pairs := s.pairs
+	if s.moving {
+		pairs = append(slices.Clone(s.pairs), ui.Pair{Original: s.config.MoveHint})
+	}
+
+	if err := s.config.Window.Show(ui.Frame{Pairs: pairs, State: state, Hidden: s.hidden && !s.moving, Moving: s.moving}); err != nil {
 		s.fail(err)
 
 		return
 	}
 
-	status := controls.Status{State: state, Language: s.language, Target: s.config.Target, Paused: s.paused, Hidden: s.hidden, Starting: s.starting}
+	status := controls.Status{State: state, Language: s.language, Target: s.config.Target, Paused: s.paused, Hidden: s.hidden, Moving: s.moving, Starting: s.starting}
 	if status == s.told || s.config.Panel == nil {
 		return
 	}

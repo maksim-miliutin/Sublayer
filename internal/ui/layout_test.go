@@ -229,6 +229,18 @@ func TestMetricsGrowWithTheScreenDensity(t *testing.T) {
 	}
 }
 
+func TestAtPutsTheSubtitlesOnTheirCornerOrWhereTheyStandByDefault(t *testing.T) {
+	l := layoutFor(rect{x: 0, y: 0, w: 1920, h: 1040}, scaledMetrics(96))
+
+	if got, want := l.at(200, nil), l.place(200); got != want {
+		t.Errorf("without a corner got %+v, want the default %+v", got, want)
+	}
+
+	if got := l.at(200, &Point{X: 700, Y: 900}); got != (rect{x: 700, y: 700, w: l.width, h: 200}) {
+		t.Errorf("on a corner got %+v, want the bottom left at 700, 900", got)
+	}
+}
+
 func TestDotColorGivesTheColourOfEachState(t *testing.T) {
 	if got := DotColor(Listening); got != [3]uint8{70, 200, 110} {
 		t.Errorf("listening is %v, want 70, 200, 110", got)

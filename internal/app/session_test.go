@@ -21,6 +21,7 @@ var (
 )
 
 type window struct {
+	corner   ui.Point
 	frames   []ui.Frame
 	fail     error
 	closeErr error
@@ -35,6 +36,10 @@ func (w *window) Show(f ui.Frame) error {
 	w.frames = append(w.frames, f)
 
 	return nil
+}
+
+func (w *window) Corner() ui.Point {
+	return w.corner
 }
 
 func (w *window) Close() error {
@@ -129,7 +134,7 @@ func (s *speakers) Close() error {
 }
 
 func config(w *window, p *panel, shown int) Config {
-	return Config{Window: w, Panel: p, Shown: shown, Language: "fr", Languages: []string{"auto", "fr", "en"}, Target: "ru"}
+	return Config{Window: w, Panel: p, Shown: shown, Language: "fr", Languages: []string{"auto", "fr", "en"}, Target: "ru", MoveHint: "Drag me"}
 }
 
 func listening(w *window, shown int) *Session {
@@ -411,6 +416,55 @@ func TestACopyThePanelCannotTakeEndsTheSession(t *testing.T) {
 
 	if err := s.Close(); !errors.Is(err, errBroken) {
 		t.Errorf("closing gave %v, want the panel's failure", err)
+	}
+}
+
+func TestMovingShowsTheHintUnderThePairsAndKeepsWhereItEnded(t *testing.T) {
+	w, p := &window{corner: ui.Point{X: 300, Y: 700}}, &panel{}
+	var kept []ui.Point
+	c := config(w, p, 4)
+	c.Place = func(at ui.Point) error {
+		kept = append(kept, at)
+
+		return nil
+	}
+	s := NewSession(c)
+	s.Ready()
+	for _, text := range []string{"Un.", "Deux.", "Oui."} {
+		s.Report(said(text, "?"))
+	}
+	s.Choose(controls.Choice{Command: controls.ToggleHidden})
+
+	s.Choose(controls.Choice{Command: controls.ToggleMove})
+	want := []ui.Pair{{Original: "Un.", Translation: "?"}, {Original: "Deux.", Translation: "?"}, {Original: "Oui.", Translation: "?"}, {Original: "Drag me"}}
+	if got := w.last(t); !got.Moving || got.Hidden || !slices.Equal(got.Pairs, want) || !p.last(t).Moving || len(kept) != 0 {
+		t.Errorf("moving shows %+v with %d corners kept; want the pair, the hint, in sight, and nothing kept yet", got, len(kept))
+	}
+
+	moving := len(w.frames) - 1
+
+	s.Choose(controls.Choice{Command: controls.ToggleMove})
+	if got := w.last(t); got.Moving || !got.Hidden || len(got.Pairs) != 3 || !slices.Equal(kept, []ui.Point{{X: 300, Y: 700}}) {
+		t.Errorf("fixed, it shows %+v and kept %v; want the pairs alone, hidden again, and the corner kept", got, kept)
+	}
+
+	s.Report(said("Non.", "Нет."))
+	if got := w.frames[moving].Pairs; !slices.Equal(got, want) {
+		t.Errorf("a frame already shown changed to %v, want it left as %v", got, want)
+	}
+}
+
+func TestACornerThatCannotBeKeptIsTold(t *testing.T) {
+	p := &panel{}
+	c := config(&window{}, p, 4)
+	c.Place = func(ui.Point) error { return errReadOnly }
+	s := NewSession(c)
+
+	s.Choose(controls.Choice{Command: controls.ToggleMove})
+	s.Choose(controls.Choice{Command: controls.ToggleMove})
+
+	if len(p.alerts) != 1 || p.alerts[0] != errReadOnly.Error() {
+		t.Errorf("alerts %q, want the failure told", p.alerts)
 	}
 }
 

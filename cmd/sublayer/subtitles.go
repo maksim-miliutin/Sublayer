@@ -42,7 +42,7 @@ func subtitles(args []string, m machine) (err error) {
 		}()
 	}
 
-	window, err := ui.Open()
+	window, err := ui.Open(cornerOf(s))
 	if err != nil {
 		return errors.Join(err, panel.Close())
 	}
@@ -54,7 +54,9 @@ func subtitles(args []string, m machine) (err error) {
 		Language:  s.Language,
 		Languages: settings.Languages,
 		Target:    s.Target,
-		Remember:  m.remember,
+		Remember:  func(language string) error { return m.update(speaking(language)) },
+		Place:     func(at ui.Point) error { return m.update(placed(at)) },
+		MoveHint:  "Drag to move, then " + keyOf(keys, controls.ToggleMove) + " again to fix",
 	})
 	go session.Follow(panel.Choices())
 	defer closeOnInterrupt(quitter(session.Quit))()
@@ -98,4 +100,28 @@ func subtitles(args []string, m machine) (err error) {
 func closeOnQuit(session *app.Session, source capture.Source) {
 	<-session.Context().Done()
 	source.Close()
+}
+
+func cornerOf(s settings.Settings) *ui.Point {
+	if s.Corner == nil {
+		return nil
+	}
+
+	return &ui.Point{X: s.Corner.X, Y: s.Corner.Y}
+}
+
+func speaking(language string) func(settings.Settings) settings.Settings {
+	return func(s settings.Settings) settings.Settings {
+		s.Language = language
+
+		return s
+	}
+}
+
+func placed(at ui.Point) func(settings.Settings) settings.Settings {
+	return func(s settings.Settings) settings.Settings {
+		s.Corner = &settings.Corner{X: at.X, Y: at.Y}
+
+		return s
+	}
 }

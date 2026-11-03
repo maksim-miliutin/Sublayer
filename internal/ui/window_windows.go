@@ -23,6 +23,10 @@ const (
 	acSrcOver        = 0x00
 	acSrcAlpha       = 0x01
 	wmDestroy        = 0x0002
+	wmMove           = 0x0003
+	wmNcHitTest      = 0x0084
+	htCaption        = 2
+	gwlExStyle       = ^uintptr(19)
 	wmClose          = 0x0010
 	wmRedraw         = 0x8000
 	spiGetWorkArea   = 0x0030
@@ -81,6 +85,8 @@ type user struct {
 	updateLayeredWindow  uintptr
 	systemParametersInfo uintptr
 	getDpiForSystem      uintptr
+	setWindowLongPtr     uintptr
+	monitorFromPoint     uintptr
 }
 
 var loadUser = sync.OnceValues(func() (*user, error) {
@@ -100,6 +106,8 @@ var loadUser = sync.OnceValues(func() (*user, error) {
 		winapi.Proc{Name: "UpdateLayeredWindow", Addr: &u.updateLayeredWindow},
 		winapi.Proc{Name: "SystemParametersInfoW", Addr: &u.systemParametersInfo},
 		winapi.Proc{Name: "GetDpiForSystem", Addr: &u.getDpiForSystem},
+		winapi.Proc{Name: "SetWindowLongPtrW", Addr: &u.setWindowLongPtr},
+		winapi.Proc{Name: "MonitorFromPoint", Addr: &u.monitorFromPoint},
 	)
 	if err != nil {
 		return nil, err
@@ -147,18 +155,20 @@ var (
 func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 	u, _ := loadUser()
 
-	switch message {
-	case wmRedraw:
-		openMu.Lock()
-		w := opened[hwnd]
-		openMu.Unlock()
+	openMu.Lock()
+	w := opened[hwnd]
+	openMu.Unlock()
 
-		if w != nil {
-			w.redraw()
-		}
+	switch {
+	case message == wmRedraw && w != nil:
+		w.redraw()
 
 		return 0
-	case wmDestroy:
+	case message == wmNcHitTest && w != nil && w.moving:
+		return htCaption
+	case message == wmMove && w != nil:
+		w.moved(lParam)
+	case message == wmDestroy:
 		openMu.Lock()
 		delete(opened, hwnd)
 		openMu.Unlock()
@@ -177,20 +187,23 @@ type window struct {
 	user     *user
 	renderer *renderer
 	hwnd     uintptr
+	moving   bool
 	mu       sync.Mutex
+	corner   *Point
+	placed   rect
 	frame    Frame
 	err      error
 	closing  sync.Once
 	done     chan struct{}
 }
 
-func Open() (Window, error) {
+func Open(corner *Point) (Window, error) {
 	u, err := loadUser()
 	if err != nil {
 		return nil, err
 	}
 
-	w := &window{user: u, done: make(chan struct{})}
+	w := &window{user: u, corner: corner, done: make(chan struct{})}
 	ready := make(chan error)
 	go w.run(ready)
 
@@ -249,7 +262,7 @@ func (w *window) create() error {
 		return err
 	}
 
-	style := uintptr(wsExLayered | wsExTransparent | wsExTopmost | wsExToolWindow | wsExNoActivate)
+	style := exStyle(false)
 	hwnd, _, callErr := syscall.SyscallN(w.user.createWindow, style, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)),
 		wsPopup, 0, 0, 1, 1, 0, 0, w.user.instance, 0)
 	if hwnd == 0 {
@@ -295,6 +308,17 @@ func (w *window) Show(f Frame) error {
 	return nil
 }
 
+func (w *window) Corner() Point {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.corner != nil {
+		return *w.corner
+	}
+
+	return Point{X: w.placed.x, Y: w.placed.bottom()}
+}
+
 func (w *window) Close() error {
 	w.closing.Do(func() { syscall.SyscallN(w.user.postMessage, w.hwnd, wmClose, 0, 0) })
 	<-w.done
@@ -321,6 +345,7 @@ func (w *window) redraw() {
 func (w *window) refresh() error {
 	w.mu.Lock()
 	f := w.frame
+	corner := w.corner
 	w.mu.Unlock()
 
 	var area winRect
@@ -338,7 +363,12 @@ func (w *window) refresh() error {
 	}
 	defer c.free()
 
-	at := l.place(c.scene.height)
+	at := l.at(c.scene.height, w.onScreen(corner))
+
+	// Windows tells of every move, this one too, so the corner must already know the height.
+	w.mu.Lock()
+	w.placed = at
+	w.mu.Unlock()
 	dst := point{x: int32(at.x), y: int32(at.y)}
 	extent := size{cx: int32(at.w), cy: int32(at.h)}
 	var src point
@@ -350,6 +380,8 @@ func (w *window) refresh() error {
 		return failure("UpdateLayeredWindow", callErr)
 	}
 
+	w.steer(f.Moving)
+
 	shown := uintptr(swShowNoActivate)
 	if f.Hidden {
 		shown = swHide
@@ -357,4 +389,51 @@ func (w *window) refresh() error {
 	syscall.SyscallN(w.user.showWindow, w.hwnd, shown)
 
 	return nil
+}
+
+// Clicks pass through the subtitles except while they are being moved; then a drag on a
+// plate moves them, because the window tells Windows that the plate is its title bar.
+func exStyle(moving bool) uintptr {
+	style := uintptr(wsExLayered | wsExTopmost | wsExToolWindow | wsExNoActivate)
+	if !moving {
+		style |= wsExTransparent
+	}
+
+	return style
+}
+
+func (w *window) steer(moving bool) {
+	if moving == w.moving {
+		return
+	}
+
+	w.moving = moving
+	syscall.SyscallN(w.user.setWindowLongPtr, w.hwnd, gwlExStyle, exStyle(moving))
+}
+
+func (w *window) moved(lParam uintptr) {
+	if !w.moving {
+		return
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	x, y := int(int16(lParam&0xffff)), int(int16(lParam>>16&0xffff))
+	w.corner = &Point{X: x, Y: y + w.placed.h}
+}
+
+func (w *window) onScreen(corner *Point) *Point {
+	if corner == nil {
+		return nil
+	}
+
+	// MonitorFromPoint takes the POINT itself, two 32-bit halves in one 64-bit word.
+	packed := uint64(uint32(int32(corner.X))) | uint64(uint32(int32(corner.Y-1)))<<32
+	monitor, _, _ := syscall.SyscallN(w.user.monitorFromPoint, uintptr(packed), 0)
+	if monitor == 0 {
+		return nil
+	}
+
+	return corner
 }
