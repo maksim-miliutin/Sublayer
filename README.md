@@ -37,10 +37,16 @@ started when it exits. A server you started yourself is used as it is. The dot o
 overlay stays grey while the servers start and turns green once Sublayer listens.
 
 The subtitles appear at the bottom left over every window, and clicks go through them.
-Press Ctrl+C in the console to stop. `-lang fr` or `-lang en` names the language the
-other side speaks for this run, and `-lang auto` lets each phrase tell. `sublayer listen`
-prints the same pairs in the console alone, and `sublayer listen file.wav` reads a
-recording instead of the speakers.
+Sublayer also puts an icon in the notification area. Its colour follows the dot, hovering
+over it tells the languages and what is going on, and its menu picks the language the
+other side speaks, pauses the listening, hides the subtitles and exits. A language picked
+there stays for the next start. Started by a double click, Sublayer runs without a console
+window and tells of a failure in a message box; started from a console, it keeps writing
+there, and Ctrl+C stops it too.
+
+`-lang fr` or `-lang en` names the language the other side speaks for this run, and
+`-lang auto` lets each phrase tell. `sublayer listen` prints the same pairs in the console
+alone, and `sublayer listen file.wav` reads a recording instead of the speakers.
 
 ## Settings
 

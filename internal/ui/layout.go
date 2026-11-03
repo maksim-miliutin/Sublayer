@@ -68,6 +68,12 @@ var stateColors = map[State]rgb{
 	Failed:      {230, 70, 60},
 }
 
+func DotColor(s State) [3]uint8 {
+	c := stateColor(s)
+
+	return [3]uint8{c.r, c.g, c.b}
+}
+
 func stateColor(s State) rgb {
 	c, known := stateColors[s]
 	if !known {

@@ -1,6 +1,15 @@
 package controls
 
-import "github.com/maksim-miliutin/Sublayer/internal/ui"
+import (
+	"errors"
+
+	"github.com/maksim-miliutin/Sublayer/internal/ui"
+)
+
+var (
+	ErrUnsupported = errors.New("controls: no tray icon on this system yet")
+	ErrTray        = errors.New("controls: the tray icon failed")
+)
 
 type Command int
 

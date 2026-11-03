@@ -27,8 +27,7 @@ const (
 	wmRedraw         = 0x8000
 	spiGetWorkArea   = 0x0030
 
-	perMonitorAwareV2 = ^uintptr(3)
-	className         = "SublayerOverlay"
+	className = "SublayerOverlay"
 )
 
 type wndClassEx struct {
@@ -82,7 +81,6 @@ type user struct {
 	updateLayeredWindow  uintptr
 	systemParametersInfo uintptr
 	getDpiForSystem      uintptr
-	setDpiAwareness      uintptr
 }
 
 var loadUser = sync.OnceValues(func() (*user, error) {
@@ -102,7 +100,6 @@ var loadUser = sync.OnceValues(func() (*user, error) {
 		winapi.Proc{Name: "UpdateLayeredWindow", Addr: &u.updateLayeredWindow},
 		winapi.Proc{Name: "SystemParametersInfoW", Addr: &u.systemParametersInfo},
 		winapi.Proc{Name: "GetDpiForSystem", Addr: &u.getDpiForSystem},
-		winapi.Proc{Name: "SetProcessDpiAwarenessContext", Addr: &u.setDpiAwareness},
 	)
 	if err != nil {
 		return nil, err
@@ -231,7 +228,9 @@ func (w *window) run(ready chan<- error) {
 }
 
 func (w *window) create() error {
-	syscall.SyscallN(w.user.setDpiAwareness, perMonitorAwareV2)
+	if err := winapi.AwareOfDPI(); err != nil {
+		return err
+	}
 	dpi, _, _ := syscall.SyscallN(w.user.getDpiForSystem)
 
 	r, err := newRenderer(int(dpi))

@@ -60,3 +60,19 @@ func writeSettings(path string, s settings.Settings) error {
 
 	return os.WriteFile(path, file, 0o644)
 }
+
+func rememberLanguage(language string) error {
+	s, err := loadSettings()
+	if err != nil {
+		return err
+	}
+
+	path, err := settingsPath()
+	if err != nil {
+		return err
+	}
+
+	s.Language = language
+
+	return writeSettings(path, s)
+}

@@ -15,11 +15,12 @@ var errUsage = fmt.Errorf("usage: sublayer %[1]s | sublayer record <file.wav> | 
 
 type machine struct {
 	settings func() (settings.Settings, error)
+	remember func(language string) error
 	servers  func(ctx context.Context, s settings.Settings, starting func(servers.Server)) (stop func() error, err error)
 }
 
 func main() {
-	err := run(os.Args[1:], machine{settings: loadSettings, servers: startServers})
+	err := run(os.Args[1:], machine{settings: loadSettings, remember: rememberLanguage, servers: startServers})
 	if err == nil {
 		return
 	}

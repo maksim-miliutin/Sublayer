@@ -7,13 +7,14 @@ import (
 
 	"github.com/maksim-miliutin/Sublayer/internal/app"
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
+	"github.com/maksim-miliutin/Sublayer/internal/controls"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/servers"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
-func subtitles(args []string, m machine) error {
+func subtitles(args []string, m machine) (err error) {
 	asked, s, err := settle(args, m)
 	if err != nil {
 		return err
@@ -23,12 +24,34 @@ func subtitles(args []string, m machine) error {
 		return errUsage
 	}
 
-	window, err := ui.Open()
+	panel, err := controls.Open(settings.Languages)
 	if err != nil {
 		return err
 	}
 
-	session := app.NewSession(app.Config{Window: window, Shown: s.Pairs, Language: s.Language, Languages: settings.Languages, Target: s.Target})
+	if detach() {
+		defer func() {
+			if err != nil {
+				alarm(err)
+			}
+		}()
+	}
+
+	window, err := ui.Open()
+	if err != nil {
+		return errors.Join(err, panel.Close())
+	}
+
+	session := app.NewSession(app.Config{
+		Window:    window,
+		Panel:     panel,
+		Shown:     s.Pairs,
+		Language:  s.Language,
+		Languages: settings.Languages,
+		Target:    s.Target,
+		Remember:  m.remember,
+	})
+	go session.Follow(panel.Choices())
 	defer closeOnInterrupt(quitter(session.Quit))()
 
 	stop, err := m.servers(session.Context(), s, func(server servers.Server) {
@@ -47,7 +70,7 @@ func subtitles(args []string, m machine) error {
 	defer source.Close()
 	go closeOnQuit(session, source)
 
-	fmt.Fprintln(os.Stderr, "listening to the speakers and showing subtitles at the bottom left of the screen, each phrase printed here too; press Ctrl+C to stop")
+	fmt.Fprintln(os.Stderr, "listening to the speakers and showing subtitles at the bottom left of the screen, each phrase printed here too; exit from the tray icon or press Ctrl+C")
 	session.Ready()
 
 	v := voicesFor(s)

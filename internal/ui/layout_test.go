@@ -228,3 +228,13 @@ func TestMetricsGrowWithTheScreenDensity(t *testing.T) {
 		t.Errorf("at 150%% got %+v from %+v", at144, at96)
 	}
 }
+
+func TestDotColorGivesTheColourOfEachState(t *testing.T) {
+	if got := DotColor(Listening); got != [3]uint8{70, 200, 110} {
+		t.Errorf("listening is %v, want 70, 200, 110", got)
+	}
+
+	if got := DotColor(State(99)); got != [3]uint8{230, 70, 60} {
+		t.Errorf("an unknown state is %v, want the colour of a failure", got)
+	}
+}
