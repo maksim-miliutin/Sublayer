@@ -8,6 +8,8 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/app"
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
+	"github.com/maksim-miliutin/Sublayer/internal/servers"
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
@@ -21,38 +23,51 @@ func subtitles(args []string, m machine) error {
 		return errUsage
 	}
 
-	stop, err := m.servers(s)
-	if err != nil {
-		return err
-	}
-	defer stop()
-
 	window, err := ui.Open()
 	if err != nil {
 		return err
 	}
 
+	session := app.NewSession(app.Config{Window: window, Shown: s.Pairs, Language: s.Language, Languages: settings.Languages, Target: s.Target})
+	defer closeOnInterrupt(quitter(session.Quit))()
+
+	stop, err := m.servers(session.Context(), s, func(server servers.Server) {
+		session.Starting(server.Name)
+		announce(server)
+	})
+	if err != nil {
+		return errors.Join(unlessQuit(err), session.Close())
+	}
+	defer stop()
+
 	source, err := capture.Open()
 	if err != nil {
-		return errors.Join(err, window.Close())
+		return errors.Join(err, session.Close())
 	}
 	defer source.Close()
-	defer closeOnInterrupt(source)()
-
-	screen := app.NewSubtitles(app.Config{Window: window, Shown: s.Pairs, StopListening: func() { source.Close() }})
+	go closeOnQuit(session, source)
 
 	fmt.Fprintln(os.Stderr, "listening to the speakers and showing subtitles at the bottom left of the screen, each phrase printed here too; press Ctrl+C to stop")
+	session.Ready()
 
+	v := voicesFor(s)
 	err = interpret(pipeline.Config{
-		Source:      source,
+		Source:      session.Listen(source),
 		Rate:        capture.Rate,
 		Waiting:     waitingPhrases,
-		Recognizing: screen.Recognizing,
+		Transcriber: session.Transcriber(v.whisper),
+		Translator:  session.Translator(v.libre),
+		Recognizing: session.Recognizing,
 		Report: func(r pipeline.Result) {
-			screen.Report(r)
+			session.Report(r)
 			show(r)
 		},
 	}, s)
 
-	return errors.Join(err, screen.Close())
+	return errors.Join(err, session.Close())
+}
+
+func closeOnQuit(session *app.Session, source capture.Source) {
+	<-session.Context().Done()
+	source.Close()
 }

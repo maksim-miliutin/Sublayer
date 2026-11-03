@@ -33,7 +33,8 @@ sublayer
 
 Sublayer starts whisper-server and LibreTranslate itself when nothing answers at their
 addresses, with the programs and the model named in the settings, and stops the ones it
-started when it exits. A server you started yourself is used as it is.
+started when it exits. A server you started yourself is used as it is. The dot of the
+overlay stays grey while the servers start and turns green once Sublayer listens.
 
 The subtitles appear at the bottom left over every window, and clicks go through them.
 Press Ctrl+C in the console to stop. `-lang fr` or `-lang en` names the language the

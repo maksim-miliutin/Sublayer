@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/maksim-miliutin/Sublayer/internal/servers"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 )
 
@@ -13,7 +15,7 @@ var errUsage = fmt.Errorf("usage: sublayer %[1]s | sublayer record <file.wav> | 
 
 type machine struct {
 	settings func() (settings.Settings, error)
-	servers  func(settings.Settings) (stop func() error, err error)
+	servers  func(ctx context.Context, s settings.Settings, starting func(servers.Server)) (stop func() error, err error)
 }
 
 func main() {

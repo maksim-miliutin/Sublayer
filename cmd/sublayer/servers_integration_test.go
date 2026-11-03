@@ -61,7 +61,9 @@ func TestTheServersHearAndTranslateTheRecordedSpeech(t *testing.T) {
 		heard = append(heard, r)
 	}
 
-	if err := interpret(pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Report: report}, settings.Defaults()); err != nil {
+	s, v := settings.Defaults(), voicesFor(settings.Defaults())
+	c := pipeline.Config{Source: &recording{samples: samples}, Rate: rate, Transcriber: v.whisper(s.Language), Translator: v.libre(s.Language), Report: report}
+	if err := interpret(c, s); err != nil {
 		t.Fatal(err)
 	}
 

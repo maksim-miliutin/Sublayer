@@ -22,8 +22,9 @@ const (
 )
 
 type Frame struct {
-	Pairs []Pair // oldest first; the newest is shown at the bottom
-	State State
+	Pairs  []Pair // oldest first; the newest is shown at the bottom
+	State  State
+	Hidden bool
 }
 
 type Window interface {

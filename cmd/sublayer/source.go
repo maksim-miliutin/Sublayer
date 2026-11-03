@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -29,6 +30,22 @@ func closeOnInterrupt(c io.Closer) (stop func()) {
 		signal.Stop(interrupt)
 		close(finished)
 	}
+}
+
+type quitter func()
+
+func (q quitter) Close() error {
+	q()
+
+	return nil
+}
+
+func unlessQuit(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+
+	return err
 }
 
 func unlessClosed(err error) error {

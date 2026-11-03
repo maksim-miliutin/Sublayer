@@ -17,6 +17,7 @@ const (
 	wsExTopmost      = 0x00000008
 	wsExToolWindow   = 0x00000080
 	wsExNoActivate   = 0x08000000
+	swHide           = 0
 	swShowNoActivate = 4
 	ulwAlpha         = 0x2
 	acSrcOver        = 0x00
@@ -261,13 +262,7 @@ func (w *window) create() error {
 	opened[hwnd] = w
 	openMu.Unlock()
 
-	if err := w.refresh(); err != nil {
-		return err
-	}
-
-	syscall.SyscallN(w.user.showWindow, hwnd, swShowNoActivate)
-
-	return nil
+	return w.refresh()
 }
 
 func (w *window) loop() {
@@ -355,6 +350,12 @@ func (w *window) refresh() error {
 	if ok == 0 {
 		return failure("UpdateLayeredWindow", callErr)
 	}
+
+	shown := uintptr(swShowNoActivate)
+	if f.Hidden {
+		shown = swHide
+	}
+	syscall.SyscallN(w.user.showWindow, w.hwnd, shown)
 
 	return nil
 }
