@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 	"github.com/maksim-miliutin/Sublayer/internal/winapi"
 )
@@ -17,8 +18,13 @@ const (
 	wmClose        = 0x0010
 	wmLButtonUp    = 0x0202
 	wmRButtonUp    = 0x0205
+	wmHotkey       = 0x0312
 	wmTray         = 0x8001
 	wmRefresh      = 0x8002
+	wmCopy         = 0x8003
+	modNoRepeat    = 0x4000
+	gmemMoveable   = 0x0002
+	cfUnicodeText  = 13
 	nimAdd         = 0x0
 	nimModify      = 0x1
 	nimDelete      = 0x2
@@ -121,14 +127,17 @@ type iconInfo struct {
 }
 
 type api struct {
-	instance                                                  uintptr
-	registerClass, createWindow, defWindowProc, destroyWindow uintptr
-	getMessage, translateMessage, dispatchMessage             uintptr
-	postMessage, postQuitMessage, registerWindowMessage       uintptr
-	createPopupMenu, appendMenu, trackPopupMenu, destroyMenu  uintptr
-	setForegroundWindow, getCursorPos, getSystemMetrics       uintptr
-	createIconIndirect, destroyIcon, getDC, releaseDC         uintptr
-	notifyIcon, createDIBSection, createBitmap, deleteObject  uintptr
+	instance                                                        uintptr
+	registerClass, createWindow, defWindowProc, destroyWindow       uintptr
+	getMessage, translateMessage, dispatchMessage                   uintptr
+	postMessage, postQuitMessage, registerWindowMessage             uintptr
+	createPopupMenu, appendMenu, trackPopupMenu, destroyMenu        uintptr
+	setForegroundWindow, getCursorPos, getSystemMetrics             uintptr
+	createIconIndirect, destroyIcon, getDC, releaseDC               uintptr
+	notifyIcon, createDIBSection, createBitmap, deleteObject        uintptr
+	registerHotKey, unregisterHotKey                                uintptr
+	openClipboard, emptyClipboard, setClipboardData, closeClipboard uintptr
+	globalAlloc, globalFree, globalLock, globalUnlock, moveMemory   uintptr
 }
 
 var loadAPI = sync.OnceValues(func() (*api, error) {
@@ -157,6 +166,12 @@ var loadAPI = sync.OnceValues(func() (*api, error) {
 		winapi.Proc{Name: "DestroyIcon", Addr: &a.destroyIcon},
 		winapi.Proc{Name: "GetDC", Addr: &a.getDC},
 		winapi.Proc{Name: "ReleaseDC", Addr: &a.releaseDC},
+		winapi.Proc{Name: "RegisterHotKey", Addr: &a.registerHotKey},
+		winapi.Proc{Name: "UnregisterHotKey", Addr: &a.unregisterHotKey},
+		winapi.Proc{Name: "OpenClipboard", Addr: &a.openClipboard},
+		winapi.Proc{Name: "EmptyClipboard", Addr: &a.emptyClipboard},
+		winapi.Proc{Name: "SetClipboardData", Addr: &a.setClipboardData},
+		winapi.Proc{Name: "CloseClipboard", Addr: &a.closeClipboard},
 	)
 	if err == nil {
 		err = winapi.Load("shell32.dll", winapi.Proc{Name: "Shell_NotifyIconW", Addr: &a.notifyIcon})
@@ -169,7 +184,14 @@ var loadAPI = sync.OnceValues(func() (*api, error) {
 		)
 	}
 	if err == nil {
-		err = winapi.Load("kernel32.dll", winapi.Proc{Name: "GetModuleHandleW", Addr: &moduleHandle})
+		err = winapi.Load("kernel32.dll",
+			winapi.Proc{Name: "GetModuleHandleW", Addr: &moduleHandle},
+			winapi.Proc{Name: "GlobalAlloc", Addr: &a.globalAlloc},
+			winapi.Proc{Name: "GlobalFree", Addr: &a.globalFree},
+			winapi.Proc{Name: "GlobalLock", Addr: &a.globalLock},
+			winapi.Proc{Name: "GlobalUnlock", Addr: &a.globalUnlock},
+			winapi.Proc{Name: "RtlMoveMemory", Addr: &a.moveMemory},
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -208,27 +230,28 @@ var (
 )
 
 type panel struct {
-	api       *api
-	languages []string
-	hwnd      uintptr
-	taskbar   uintptr
-	icons     map[ui.State]uintptr
-	choices   chan Choice
-	done      chan struct{}
-	closing   sync.Once
-	mu        sync.Mutex
-	status    Status
-	alert     string
-	err       error
+	api     *api
+	config  Config
+	hwnd    uintptr
+	taskbar uintptr
+	icons   map[ui.State]uintptr
+	choices chan Choice
+	done    chan struct{}
+	closing sync.Once
+	mu      sync.Mutex
+	status  Status
+	alert   string
+	clip    string
+	err     error
 }
 
-func Open(languages []string) (Panel, error) {
+func Open(c Config) (Panel, error) {
 	a, err := loadAPI()
 	if err != nil {
 		return nil, err
 	}
 
-	p := &panel{api: a, languages: languages, icons: map[ui.State]uintptr{}, choices: make(chan Choice, 8), done: make(chan struct{})}
+	p := &panel{api: a, config: c, icons: map[ui.State]uintptr{}, choices: make(chan Choice, 8), done: make(chan struct{})}
 	ready := make(chan error)
 	go p.run(ready)
 
@@ -263,6 +286,19 @@ func (p *panel) Alert(text string) error {
 	}
 
 	return p.post(wmRefresh)
+}
+
+func (p *panel) Copy(text string) error {
+	p.mu.Lock()
+	p.clip = text
+	err := p.err
+	p.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	return p.post(wmCopy)
 }
 
 func (p *panel) Choices() <-chan Choice {
@@ -332,7 +368,25 @@ func (p *panel) create() error {
 	}
 	p.taskbar, _, _ = syscall.SyscallN(p.api.registerWindowMessage, uintptr(unsafe.Pointer(taskbar)))
 
+	if held := p.bind(); len(held) > 0 {
+		p.alert = taken(held)
+	}
+
 	return p.notify(nimAdd)
+}
+
+// A key another program holds is told about rather than refused, so the rest still work.
+func (p *panel) bind() []hotkey.Combo {
+	var held []hotkey.Combo
+	for i, k := range p.config.Keys {
+		modifiers, key := k.Combo.Windows()
+		ok, _, _ := syscall.SyscallN(p.api.registerHotKey, p.hwnd, uintptr(i+1), uintptr(modifiers|modNoRepeat), uintptr(key))
+		if ok == 0 {
+			held = append(held, k.Combo)
+		}
+	}
+
+	return held
 }
 
 func (p *panel) loop() {
@@ -368,6 +422,10 @@ func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 		p.popup()
 	case message == wmRefresh:
 		p.record(p.notify(nimModify))
+	case message == wmHotkey:
+		p.press(int(wParam))
+	case message == wmCopy:
+		p.copyClip()
 	case message == p.taskbar && p.taskbar != 0:
 		p.record(p.notify(nimAdd))
 	case message == wmDestroy:
@@ -382,6 +440,10 @@ func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 }
 
 func (p *panel) destroy() {
+	for i := range p.config.Keys {
+		syscall.SyscallN(p.api.unregisterHotKey, p.hwnd, uintptr(i+1))
+	}
+
 	data := notifyIconData{window: p.hwnd, id: iconID}
 	data.size = uint32(unsafe.Sizeof(data))
 	syscall.SyscallN(p.api.notifyIcon, nimDelete, uintptr(unsafe.Pointer(&data)))
@@ -487,7 +549,7 @@ func (p *panel) makeIcon(side int, pixels []byte) (uintptr, error) {
 
 func (p *panel) popup() {
 	p.mu.Lock()
-	items := menu(p.status, p.languages)
+	items := menu(p.status, p.config)
 	p.mu.Unlock()
 
 	picked, err := p.track(items)
@@ -561,6 +623,61 @@ func entry(it item) (flags uintptr, label *uint16, err error) {
 	}
 
 	return flags, label, nil
+}
+
+func (p *panel) press(id int) {
+	if id >= 1 && id <= len(p.config.Keys) {
+		p.choose(p.config.Keys[id-1].Choice)
+	}
+}
+
+func (p *panel) copyClip() {
+	p.mu.Lock()
+	text := p.clip
+	p.mu.Unlock()
+
+	if err := p.toClipboard(clipText(text)); err != nil {
+		p.mu.Lock()
+		p.alert = "Sublayer could not copy the pair: " + err.Error()
+		p.mu.Unlock()
+		p.record(p.notify(nimModify))
+	}
+}
+
+func (p *panel) toClipboard(units []uint16) error {
+	size := uintptr(len(units) * 2)
+	memory, _, callErr := syscall.SyscallN(p.api.globalAlloc, gmemMoveable, size)
+	if memory == 0 {
+		return failure("GlobalAlloc", callErr)
+	}
+
+	locked, _, callErr := syscall.SyscallN(p.api.globalLock, memory)
+	if locked == 0 {
+		syscall.SyscallN(p.api.globalFree, memory)
+
+		return failure("GlobalLock", callErr)
+	}
+	syscall.SyscallN(p.api.moveMemory, locked, uintptr(unsafe.Pointer(&units[0])), size)
+	syscall.SyscallN(p.api.globalUnlock, memory)
+
+	opened, _, callErr := syscall.SyscallN(p.api.openClipboard, p.hwnd)
+	if opened == 0 {
+		syscall.SyscallN(p.api.globalFree, memory)
+
+		return failure("OpenClipboard", callErr)
+	}
+	defer syscall.SyscallN(p.api.closeClipboard)
+
+	// Once the clipboard takes the memory it is the clipboard's to free, and only then.
+	syscall.SyscallN(p.api.emptyClipboard)
+	set, _, callErr := syscall.SyscallN(p.api.setClipboardData, cfUnicodeText, memory)
+	if set == 0 {
+		syscall.SyscallN(p.api.globalFree, memory)
+
+		return failure("SetClipboardData", callErr)
+	}
+
+	return nil
 }
 
 func (p *panel) choose(c Choice) {

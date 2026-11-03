@@ -5,10 +5,20 @@ import (
 	"testing"
 	"unicode/utf16"
 
+	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
 var languages = []string{"auto", "fr", "en"}
+
+var keyed = Config{
+	Languages: languages,
+	Keys: []Key{
+		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "T"}, Choice: Choice{Command: ToggleHidden}},
+		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "P"}, Choice: Choice{Command: TogglePause}},
+		{Combo: hotkey.Combo{Ctrl: true, Alt: true, Key: "C"}, Choice: Choice{Command: CopyLast}},
+	},
+}
 
 func chosen(items []item, c Choice) (item, bool) {
 	for _, it := range items {
@@ -21,7 +31,7 @@ func chosen(items []item, c Choice) (item, bool) {
 }
 
 func TestMenuOffersEveryLanguageAndTicksTheOneSpoken(t *testing.T) {
-	items := menu(Status{Language: "fr", Target: "ru"}, languages)
+	items := menu(Status{Language: "fr", Target: "ru"}, Config{Languages: languages})
 
 	for _, code := range languages {
 		it, found := chosen(items, Choice{Command: ChooseLanguage, Language: code})
@@ -37,7 +47,7 @@ func TestMenuOffersEveryLanguageAndTicksTheOneSpoken(t *testing.T) {
 
 func TestMenuTicksPauseAndHidingAsTheyStand(t *testing.T) {
 	for _, s := range []Status{{Paused: true}, {Hidden: true}, {}} {
-		items := menu(s, languages)
+		items := menu(s, Config{Languages: languages})
 
 		pause, _ := chosen(items, Choice{Command: TogglePause})
 		hide, _ := chosen(items, Choice{Command: ToggleHidden})
@@ -47,8 +57,46 @@ func TestMenuTicksPauseAndHidingAsTheyStand(t *testing.T) {
 	}
 }
 
+func TestMenuNamesTheKeyOfEachChoiceThatHasOne(t *testing.T) {
+	items := menu(Status{}, keyed)
+
+	cases := map[Command]string{
+		TogglePause:  "Pause\tCtrl+Alt+P",
+		ToggleHidden: "Hide subtitles\tCtrl+Alt+T",
+		CopyLast:     "Copy the last pair\tCtrl+Alt+C",
+		Quit:         "Exit",
+	}
+	for command, want := range cases {
+		if it, found := chosen(items, Choice{Command: command}); !found || it.label != want {
+			t.Errorf("command %d is labelled %q (found %v), want %q", command, it.label, found, want)
+		}
+	}
+}
+
+func TestClipTextEndsLinesTheWindowsWayAndClosesWithZero(t *testing.T) {
+	got := clipText("Oui.\nДа.")
+	want := append(utf16.Encode([]rune("Oui.\r\nДа.")), 0)
+
+	if string(utf16.Decode(got)) != string(utf16.Decode(want)) || got[len(got)-1] != 0 {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestTakenNamesEveryKeyAnotherProgramHolds(t *testing.T) {
+	one := []hotkey.Combo{{Ctrl: true, Alt: true, Key: "T"}}
+	two := append(one, hotkey.Combo{Ctrl: true, Alt: true, Key: "C"})
+
+	if got := taken(one); got != "Ctrl+Alt+T is taken by another program" {
+		t.Errorf("got %q", got)
+	}
+
+	if got := taken(two); got != "Ctrl+Alt+T and Ctrl+Alt+C are taken by another program" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestMenuEndsWithExit(t *testing.T) {
-	items := menu(Status{}, languages)
+	items := menu(Status{}, Config{Languages: languages})
 
 	if last := items[len(items)-1]; last.choice != (Choice{Command: Quit}) || last.id == 0 {
 		t.Errorf("the menu ends with %+v, want Exit", last)
@@ -57,7 +105,7 @@ func TestMenuEndsWithExit(t *testing.T) {
 
 func TestMenuNumbersEveryChoiceApartAndNothingElse(t *testing.T) {
 	seen := map[int]bool{}
-	for _, it := range menu(Status{}, languages) {
+	for _, it := range menu(Status{}, keyed) {
 		answers := !it.line && !it.title
 		if answers == (it.id == 0) || seen[it.id] && it.id != 0 {
 			t.Errorf("%+v: a choice wants its own number above zero, a line or a title wants none", it)
