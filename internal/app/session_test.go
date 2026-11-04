@@ -469,6 +469,37 @@ func TestACornerThatCannotBeKeptIsTold(t *testing.T) {
 	}
 }
 
+func TestSettingsOpenWithAWayBackForWhatChangesAtOnce(t *testing.T) {
+	c := config(&window{}, &panel{}, 4)
+	opened := 0
+	c.Configure = func(choose func(controls.Choice)) error {
+		opened++
+		choose(controls.Choice{Command: controls.ChooseLanguage, Language: "en"})
+
+		return nil
+	}
+	s := NewSession(c)
+
+	s.Choose(controls.Choice{Command: controls.OpenSettings})
+
+	if opened != 1 || s.Language() != "en" {
+		t.Errorf("settings opened %d times and the session speaks %q, want once and en", opened, s.Language())
+	}
+}
+
+func TestSettingsThatCannotOpenAreTold(t *testing.T) {
+	p := &panel{}
+	c := config(&window{}, p, 4)
+	c.Configure = func(func(controls.Choice)) error { return errReadOnly }
+
+	NewSession(c).Choose(controls.Choice{Command: controls.OpenSettings})
+	NewSession(config(&window{}, p, 4)).Choose(controls.Choice{Command: controls.OpenSettings})
+
+	if len(p.alerts) != 1 || p.alerts[0] != errReadOnly.Error() {
+		t.Errorf("alerts %q, want the failure told once and nothing from a session without settings", p.alerts)
+	}
+}
+
 type clock struct {
 	now time.Time
 }

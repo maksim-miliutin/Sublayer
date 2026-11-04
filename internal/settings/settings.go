@@ -16,11 +16,13 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
-var ErrInvalid = errors.New("settings: the file holds no settings Sublayer can use")
+var ErrInvalid = errors.New("settings: Sublayer cannot use these settings")
 
 var Languages = []string{"auto", "fr", "en"}
 
 var Targets = []string{"ru", "en"}
+
+var names = map[string]string{"auto": "Detect for each phrase", "fr": "French", "en": "English", "ru": "Russian"}
 
 const (
 	fewestPairs = 1
@@ -105,6 +107,14 @@ func Codes() []string {
 	}
 
 	return codes
+}
+
+func LanguageName(code string) string {
+	if name, known := names[code]; known {
+		return name
+	}
+
+	return code
 }
 
 func (p Phrases) Config() vad.Config {

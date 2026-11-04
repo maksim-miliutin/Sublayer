@@ -54,6 +54,21 @@ func TestParseReadsAFileThatStartsWithAByteOrderMark(t *testing.T) {
 	}
 }
 
+func TestLanguageNameNamesEveryLanguageSublayerOffers(t *testing.T) {
+	cases := map[string]string{"auto": "Detect for each phrase", "fr": "French", "en": "English", "ru": "Russian", "de": "de"}
+	for code, want := range cases {
+		if got := LanguageName(code); got != want {
+			t.Errorf("%s is named %q, want %q", code, got, want)
+		}
+	}
+
+	for _, code := range slices.Concat(Languages, Targets) {
+		if LanguageName(code) == code {
+			t.Errorf("%s goes without a name", code)
+		}
+	}
+}
+
 func TestLingerCountsInSeconds(t *testing.T) {
 	if got := (Overlay{LingerSeconds: 10}).Linger(); got != 10*time.Second {
 		t.Errorf("10 linger seconds came to %v", got)

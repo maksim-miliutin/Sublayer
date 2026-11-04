@@ -26,8 +26,9 @@ type Config struct {
 	Remember  func(language string) error // keeps a chosen language for the next start; nil keeps none
 	Place     func(ui.Point) error        // keeps where the subtitles were moved to; nil keeps nothing
 	MoveHint  string
-	Linger    time.Duration    // how long a pair stays; zero keeps it until newer ones push it out
-	Now       func() time.Time // nil reads the clock
+	Linger    time.Duration                            // how long a pair stays; zero keeps it until newer ones push it out
+	Now       func() time.Time                         // nil reads the clock
+	Configure func(choose func(controls.Choice)) error // opens the settings, which choose what changes at once; nil opens none
 }
 
 type heard struct {
@@ -170,6 +171,8 @@ func (s *Session) Choose(c controls.Choice) {
 		s.copyLast()
 	case controls.ToggleMove:
 		s.toggleMove()
+	case controls.OpenSettings:
+		s.configure()
 	case controls.Quit:
 		s.Quit()
 	}
@@ -256,6 +259,16 @@ func (s *Session) toggleMove() {
 	}
 
 	if err := s.config.Place(s.config.Window.Corner()); err != nil {
+		s.alert(err)
+	}
+}
+
+func (s *Session) configure() {
+	if s.config.Configure == nil {
+		return
+	}
+
+	if err := s.config.Configure(s.Choose); err != nil {
 		s.alert(err)
 	}
 }

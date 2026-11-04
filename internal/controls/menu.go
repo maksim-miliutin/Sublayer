@@ -5,12 +5,11 @@ import (
 	"unicode/utf16"
 
 	"github.com/maksim-miliutin/Sublayer/internal/hotkey"
+	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
 const tipLimit = 127 // characters the tray shows of a tooltip
-
-var names = map[string]string{"auto": "Detect for each phrase", "fr": "French", "en": "English"}
 
 type item struct {
 	id      int // what the menu answers when the item is clicked; zero for a line or a title
@@ -24,7 +23,7 @@ type item struct {
 func menu(s Status, c Config) []item {
 	items := []item{{label: "The other side speaks", title: true}}
 	for _, code := range c.Languages {
-		items = append(items, item{label: name(code), choice: Choice{Command: ChooseLanguage, Language: code}, checked: code == s.Language})
+		items = append(items, item{label: settings.LanguageName(code), choice: Choice{Command: ChooseLanguage, Language: code}, checked: code == s.Language})
 	}
 
 	items = append(items,
@@ -34,6 +33,7 @@ func menu(s Status, c Config) []item {
 		item{label: "Copy the last pair", choice: Choice{Command: CopyLast}},
 		item{label: "Move subtitles", choice: Choice{Command: ToggleMove}, checked: s.Moving},
 		item{line: true},
+		item{label: "Settings…", choice: Choice{Command: OpenSettings}},
 		item{label: "Exit", choice: Choice{Command: Quit}},
 	)
 
@@ -73,14 +73,6 @@ func taken(combos []hotkey.Combo) string {
 
 func clipText(text string) []uint16 {
 	return append(utf16.Encode([]rune(strings.ReplaceAll(text, "\n", "\r\n"))), 0)
-}
-
-func name(code string) string {
-	if n, known := names[code]; known {
-		return n
-	}
-
-	return code
 }
 
 func tip(s Status) string {
