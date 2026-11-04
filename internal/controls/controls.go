@@ -20,6 +20,7 @@ const (
 	ChooseLanguage
 	CopyLast
 	ToggleMove
+	OpenSettings
 	Quit
 )
 

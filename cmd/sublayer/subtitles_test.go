@@ -1,11 +1,16 @@
 package main
 
 import (
+	"errors"
+	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/app"
+	"github.com/maksim-miliutin/Sublayer/internal/controls"
+	"github.com/maksim-miliutin/Sublayer/internal/form"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
@@ -88,5 +93,111 @@ func TestTheSettingsKeepWhatTheSessionChose(t *testing.T) {
 
 	if got := cornerOf(settings.Defaults()); got != nil {
 		t.Errorf("without a corner the window would open at %+v, want its default", got)
+	}
+}
+
+type store struct {
+	file   settings.Settings
+	broken error
+}
+
+func (s *store) machine() machine {
+	return machine{
+		settings: func() (settings.Settings, error) { return s.file, s.broken },
+		update: func(change func(settings.Settings) settings.Settings) error {
+			s.file = change(s.file)
+
+			return nil
+		},
+	}
+}
+
+type editing struct {
+	config form.Config
+	opened int
+}
+
+func (e *editing) Edit(c form.Config) error {
+	e.config, e.opened = c, e.opened+1
+
+	return nil
+}
+
+func labelled(t *testing.T, sections []form.Section, label string) *form.Field {
+	t.Helper()
+
+	var all []*form.Field
+	for i := range sections {
+		for j := range sections[i].Fields {
+			all = append(all, &sections[i].Fields[j])
+		}
+	}
+
+	at := slices.IndexFunc(all, func(f *form.Field) bool { return f.Label == label })
+	if at < 0 {
+		t.Fatalf("no field is labelled %q", label)
+	}
+
+	return all[at]
+}
+
+func opened(t *testing.T, file *store, choose func(controls.Choice)) (*editing, []form.Section) {
+	t.Helper()
+
+	window := &editing{}
+	if err := configure(file.machine(), window, choose); err != nil {
+		t.Fatal(err)
+	}
+
+	edited, err := form.Sections(window.config.Settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return window, edited
+}
+
+func TestTheSettingsWindowSavesOverWhatTheFileHoldsByThen(t *testing.T) {
+	file := &store{file: settings.Defaults()}
+	var chosen []controls.Choice
+	window, edited := opened(t, file, func(c controls.Choice) { chosen = append(chosen, c) })
+
+	labelled(t, edited, "Text size, pt").Value = "16"
+	labelled(t, edited, "The other side speaks").Value = "en"
+	file.file.Corner = &settings.Corner{X: 40, Y: 980}
+
+	if err := window.config.Save(edited); err != nil {
+		t.Fatal(err)
+	}
+
+	got := file.file
+	if got.Overlay.TextSize != 16 || got.Language != "en" || got.Corner == nil || *got.Corner != (settings.Corner{X: 40, Y: 980}) {
+		t.Errorf("the file holds text size %d, %q and corner %+v; want 16, en and the corner kept", got.Overlay.TextSize, got.Language, got.Corner)
+	}
+
+	if want := []controls.Choice{{Command: controls.ChooseLanguage, Language: "en"}}; !slices.Equal(chosen, want) {
+		t.Errorf("chose %+v, want %+v", chosen, want)
+	}
+}
+
+func TestAWrongFieldLeavesTheFileAsItWas(t *testing.T) {
+	file := &store{file: settings.Defaults()}
+	chosen := 0
+	window, edited := opened(t, file, func(controls.Choice) { chosen++ })
+
+	labelled(t, edited, "Text size, pt").Value = "7"
+	err := window.config.Save(edited)
+
+	if !errors.Is(err, settings.ErrInvalid) || !reflect.DeepEqual(file.file, settings.Defaults()) || chosen != 0 {
+		t.Errorf("got %v with %d choices and the file %+v; want settings.ErrInvalid, no choice and the file untouched", err, chosen, file.file)
+	}
+}
+
+func TestSettingsSublayerCannotReadOpenNoWindow(t *testing.T) {
+	window := &editing{}
+	err := configure((&store{broken: settings.ErrInvalid}).machine(), window, func(controls.Choice) {})
+
+	if !errors.Is(err, settings.ErrInvalid) || window.opened != 0 {
+		t.Errorf("got %v and %d windows, want settings.ErrInvalid and none", err, window.opened)
 	}
 }

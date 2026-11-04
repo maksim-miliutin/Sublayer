@@ -39,10 +39,10 @@ overlay stays grey while the servers start and turns green once Sublayer listens
 The subtitles appear at the bottom left over every window, and clicks go through them.
 Sublayer also puts an icon in the notification area. Its colour follows the dot, hovering
 over it tells the languages and what is going on, and its menu picks the language the
-other side speaks, pauses the listening, hides the subtitles and exits. A language picked
-there stays for the next start. Started by a double click, Sublayer runs without a console
-window and tells of a failure in a message box; started from a console, it keeps writing
-there, and Ctrl+C stops it too.
+other side speaks, pauses the listening, hides the subtitles, opens the settings and
+exits. A language picked there stays for the next start. Started by a double click,
+Sublayer runs without a console window and tells of a failure in a message box; started
+from a console, it keeps writing there, and Ctrl+C stops it too.
 
 Keys work over every window: Ctrl+Alt+T shows or hides the subtitles, Ctrl+Alt+P pauses
 and resumes the listening, and Ctrl+Alt+C copies the last pair. Ctrl+Alt+M lets the
@@ -56,6 +56,11 @@ notification.
 alone, and `sublayer listen file.wav` reads a recording instead of the speakers.
 
 ## Settings
+
+Settings… in the tray menu opens a window with every setting: the languages, the servers
+with a Browse button for each program and the model, the subtitles, the phrases and the
+keys. Save writes them to the settings file and tells of a value Sublayer cannot use
+instead. The language the other side speaks changes at once, the rest at the next start.
 
 Sublayer keeps its settings in `%APPDATA%\Sublayer\config.json`, writes the defaults
 there on the first run and reads the file at every start. The file names the language the

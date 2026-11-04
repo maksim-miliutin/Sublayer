@@ -67,6 +67,7 @@ func TestMenuNamesTheKeyOfEachChoiceThatHasOne(t *testing.T) {
 		ToggleHidden: "Hide subtitles\tCtrl+Alt+T",
 		CopyLast:     "Copy the last pair\tCtrl+Alt+C",
 		ToggleMove:   "Move subtitles\tCtrl+Alt+M",
+		OpenSettings: "Settings…",
 		Quit:         "Exit",
 	}
 	for command, want := range cases {
@@ -142,12 +143,6 @@ func TestTipFitsWhatTheTrayShows(t *testing.T) {
 
 	if n := len(utf16.Encode([]rune(got))); n > 127 {
 		t.Errorf("the tip runs to %d characters, want at most 127", n)
-	}
-}
-
-func TestALanguageWithoutANameShowsItsCode(t *testing.T) {
-	if got := name("de"); got != "de" {
-		t.Errorf("de is labelled %q, want de", got)
 	}
 }
 

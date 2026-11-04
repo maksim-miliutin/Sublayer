@@ -9,13 +9,21 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/app"
 	"github.com/maksim-miliutin/Sublayer/internal/capture"
 	"github.com/maksim-miliutin/Sublayer/internal/controls"
+	"github.com/maksim-miliutin/Sublayer/internal/form"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/servers"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
 	"github.com/maksim-miliutin/Sublayer/internal/ui"
 )
 
-const expireEvery = 250 * time.Millisecond
+const (
+	expireEvery  = 250 * time.Millisecond
+	settingsNote = "The other side's language changes at once, the rest at the next start."
+)
+
+type editor interface {
+	Edit(form.Config) error
+}
 
 func subtitles(args []string, m machine) (err error) {
 	asked, s, err := settle(args, m)
@@ -50,6 +58,9 @@ func subtitles(args []string, m machine) (err error) {
 		return errors.Join(err, panel.Close())
 	}
 
+	settingsWindow := &form.Editor{}
+	defer settingsWindow.Close()
+
 	session := app.NewSession(app.Config{
 		Window:    window,
 		Panel:     panel,
@@ -61,6 +72,7 @@ func subtitles(args []string, m machine) (err error) {
 		Place:     func(at ui.Point) error { return m.update(placed(at)) },
 		MoveHint:  "Drag to move, then " + keyOf(keys, controls.ToggleMove) + " again to fix",
 		Linger:    s.Overlay.Linger(),
+		Configure: func(choose func(controls.Choice)) error { return configure(m, settingsWindow, choose) },
 	})
 	ticks := time.NewTicker(expireEvery)
 	defer ticks.Stop()
@@ -118,6 +130,40 @@ func expire(session *app.Session, ticks <-chan time.Time) {
 			return
 		}
 	}
+}
+
+func configure(m machine, e editor, choose func(controls.Choice)) error {
+	current, err := m.settings()
+	if err != nil {
+		return err
+	}
+
+	return e.Edit(form.Config{Settings: current, Note: settingsNote, Save: func(edited []form.Section) error {
+		saved, err := save(m, edited)
+		if err != nil {
+			return err
+		}
+
+		choose(controls.Choice{Command: controls.ChooseLanguage, Language: saved.Language})
+
+		return nil
+	}})
+}
+
+func save(m machine, edited []form.Section) (settings.Settings, error) {
+	var saved settings.Settings
+	var invalid error
+
+	err := m.update(func(latest settings.Settings) settings.Settings {
+		saved, invalid = form.Apply(latest, edited)
+		if invalid != nil {
+			return latest
+		}
+
+		return saved
+	})
+
+	return saved, errors.Join(invalid, err)
 }
 
 func lookOf(s settings.Settings) ui.Look {
