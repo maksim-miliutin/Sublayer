@@ -16,19 +16,24 @@ import (
 	"github.com/maksim-miliutin/Sublayer/internal/vad"
 )
 
+type Live struct {
+	Language string
+	Target   string
+	Look     ui.Look
+	Shown    int           // pairs on screen at once
+	Linger   time.Duration // how long a pair stays; zero keeps it until newer ones push it out
+}
+
 type Config struct {
+	Live
 	Window    ui.Window
 	Panel     controls.Panel // nil when there is no tray icon
-	Shown     int            // pairs on screen at once
-	Language  string
 	Languages []string
-	Target    string
 	Remember  func(language string) error // keeps a chosen language for the next start; nil keeps none
 	Place     func(ui.Point) error        // keeps where the subtitles were moved to; nil keeps nothing
 	MoveHint  string
-	Linger    time.Duration                            // how long a pair stays; zero keeps it until newer ones push it out
-	Now       func() time.Time                         // nil reads the clock
-	Configure func(choose func(controls.Choice)) error // opens the settings, which choose what changes at once; nil opens none
+	Now       func() time.Time             // nil reads the clock
+	Configure func(adopt func(Live)) error // opens the settings, which hand back through adopt what changes at once; nil opens none
 }
 
 type heard struct {
@@ -47,7 +52,7 @@ type Session struct {
 	paused    bool
 	hidden    bool
 	moving    bool
-	language  string
+	live      Live
 	starting  string
 	told      controls.Status
 	err       error
@@ -56,7 +61,7 @@ type Session struct {
 
 func NewSession(c Config) *Session {
 	ctx, quit := context.WithCancel(context.Background())
-	s := &Session{config: c, ctx: ctx, quit: quit, language: c.Language}
+	s := &Session{config: c, ctx: ctx, quit: quit, live: c.Live}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,7 +114,7 @@ func (s *Session) Report(r pipeline.Result) {
 
 	if r.Text != "" {
 		s.pairs = append(s.pairs, heard{pair: ui.Pair{Original: r.Text, Translation: r.Translation}, at: s.now()})
-		s.pairs = s.pairs[max(0, len(s.pairs)-s.config.Shown):]
+		s.pairs = s.pairs[max(0, len(s.pairs)-s.live.Shown):]
 	}
 
 	s.state = ui.Listening
@@ -124,14 +129,14 @@ func (s *Session) Expire() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.config.Linger == 0 {
+	if s.live.Linger == 0 {
 		return
 	}
 
 	now := s.now()
 	kept := make([]heard, 0, len(s.pairs))
 	for _, h := range s.pairs {
-		if now.Sub(h.at) < s.config.Linger {
+		if now.Sub(h.at) < s.live.Linger {
 			kept = append(kept, h)
 		}
 	}
@@ -156,7 +161,36 @@ func (s *Session) Language() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.language
+	return s.live.Language
+}
+
+func (s *Session) languages() (source, target string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.live.Language, s.live.Target
+}
+
+func (s *Session) Adopt(l Live) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.err != nil || s.closed {
+		return
+	}
+
+	if !slices.Contains(s.config.Languages, l.Language) {
+		l.Language = s.live.Language
+	}
+	s.live = l
+	s.pairs = s.pairs[max(0, len(s.pairs)-l.Shown):]
+
+	if err := s.config.Window.Style(l.Look); err != nil {
+		s.fail(err)
+
+		return
+	}
+	s.show()
 }
 
 func (s *Session) Choose(c controls.Choice) {
@@ -194,9 +228,9 @@ func (s *Session) Transcriber(in func(language string) stt.Transcriber) stt.Tran
 	})
 }
 
-func (s *Session) Translator(from func(language string) translate.Translator) translate.Translator {
+func (s *Session) Translator(from func(source, target string) translate.Translator) translate.Translator {
 	return translator(func(ctx context.Context, text string) (string, error) {
-		return from(s.Language()).Translate(ctx, text)
+		return from(s.languages()).Translate(ctx, text)
 	})
 }
 
@@ -234,7 +268,7 @@ func (s *Session) speak(language string) {
 	}
 
 	s.mu.Lock()
-	s.language = language
+	s.live.Language = language
 	s.show()
 	s.mu.Unlock()
 
@@ -268,7 +302,7 @@ func (s *Session) configure() {
 		return
 	}
 
-	if err := s.config.Configure(s.Choose); err != nil {
+	if err := s.config.Configure(s.Adopt); err != nil {
 		s.alert(err)
 	}
 }
@@ -343,7 +377,7 @@ func (s *Session) show() {
 		return
 	}
 
-	status := controls.Status{State: state, Language: s.language, Target: s.config.Target, Paused: s.paused, Hidden: s.hidden, Moving: s.moving, Starting: s.starting}
+	status := controls.Status{State: state, Language: s.live.Language, Target: s.live.Target, Paused: s.paused, Hidden: s.hidden, Moving: s.moving, Starting: s.starting}
 	if status == s.told || s.config.Panel == nil {
 		return
 	}

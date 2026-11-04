@@ -125,7 +125,7 @@ func listenSpeakers(s settings.Settings, m machine) error {
 		Rate:        capture.Rate,
 		Waiting:     waitingPhrases,
 		Transcriber: v.whisper(s.Language),
-		Translator:  v.libre(s.Language),
+		Translator:  v.libre(s.Language, s.Target),
 		Report:      show,
 	}, s)
 }
@@ -153,7 +153,7 @@ func listenFile(path string, s settings.Settings, m machine) error {
 		Source:      &recording{samples: samples},
 		Rate:        rate,
 		Transcriber: v.whisper(s.Language),
-		Translator:  v.libre(s.Language),
+		Translator:  v.libre(s.Language, s.Target),
 		Report:      show,
 	}, s)
 }
@@ -166,7 +166,7 @@ func interpret(c pipeline.Config, s settings.Settings) error {
 
 type voices struct {
 	whisper func(language string) stt.Transcriber
-	libre   func(language string) translate.Translator
+	libre   func(source, target string) translate.Translator
 }
 
 func voicesFor(s settings.Settings) voices {
@@ -176,8 +176,8 @@ func voicesFor(s settings.Settings) voices {
 		whisper: func(language string) stt.Transcriber {
 			return stt.NewWhisper(stt.Config{URL: endpoint(s.Whisper.Server, whisperPath), Language: language}, client)
 		},
-		libre: func(language string) translate.Translator {
-			return translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: language, Target: s.Target}, client)
+		libre: func(source, target string) translate.Translator {
+			return translate.NewLibre(translate.Config{URL: endpoint(s.Libre, librePath), Source: source, Target: target}, client)
 		},
 	}
 }

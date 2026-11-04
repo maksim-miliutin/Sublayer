@@ -22,11 +22,13 @@ var (
 )
 
 type window struct {
-	corner   ui.Point
-	frames   []ui.Frame
-	fail     error
-	closeErr error
-	closed   bool
+	corner    ui.Point
+	frames    []ui.Frame
+	looks     []ui.Look
+	fail      error
+	styleFail error
+	closeErr  error
+	closed    bool
 }
 
 func (w *window) Show(f ui.Frame) error {
@@ -35,6 +37,16 @@ func (w *window) Show(f ui.Frame) error {
 	}
 
 	w.frames = append(w.frames, f)
+
+	return nil
+}
+
+func (w *window) Style(l ui.Look) error {
+	if w.styleFail != nil {
+		return w.styleFail
+	}
+
+	w.looks = append(w.looks, l)
 
 	return nil
 }
@@ -135,7 +147,7 @@ func (s *speakers) Close() error {
 }
 
 func config(w *window, p *panel, shown int) Config {
-	return Config{Window: w, Panel: p, Shown: shown, Language: "fr", Languages: []string{"auto", "fr", "en"}, Target: "ru", MoveHint: "Drag me"}
+	return Config{Live: Live{Language: "fr", Target: "ru", Shown: shown}, Window: w, Panel: p, Languages: []string{"auto", "fr", "en"}, MoveHint: "Drag me"}
 }
 
 func listening(w *window, shown int) *Session {
@@ -147,6 +159,15 @@ func listening(w *window, shown int) *Session {
 
 func said(text, translation string) pipeline.Result {
 	return pipeline.Result{Text: text, Translation: translation}
+}
+
+func originals(f ui.Frame) []string {
+	var texts []string
+	for _, pair := range f.Pairs {
+		texts = append(texts, pair.Original)
+	}
+
+	return texts
 }
 
 func TestSessionPutsEachNewPairUnderTheOnesBefore(t *testing.T) {
@@ -327,8 +348,8 @@ func TestAChosenLanguageGoesToTheNextPhraseAndIsRemembered(t *testing.T) {
 
 		return speech("Oui.")
 	})
-	translator := s.Translator(func(language string) translate.Translator {
-		translated = append(translated, language)
+	translator := s.Translator(func(source, _ string) translate.Translator {
+		translated = append(translated, source)
 
 		return words("Да.")
 	})
@@ -472,9 +493,9 @@ func TestACornerThatCannotBeKeptIsTold(t *testing.T) {
 func TestSettingsOpenWithAWayBackForWhatChangesAtOnce(t *testing.T) {
 	c := config(&window{}, &panel{}, 4)
 	opened := 0
-	c.Configure = func(choose func(controls.Choice)) error {
+	c.Configure = func(adopt func(Live)) error {
 		opened++
-		choose(controls.Choice{Command: controls.ChooseLanguage, Language: "en"})
+		adopt(Live{Language: "en", Target: "ru", Shown: 4})
 
 		return nil
 	}
@@ -490,13 +511,126 @@ func TestSettingsOpenWithAWayBackForWhatChangesAtOnce(t *testing.T) {
 func TestSettingsThatCannotOpenAreTold(t *testing.T) {
 	p := &panel{}
 	c := config(&window{}, p, 4)
-	c.Configure = func(func(controls.Choice)) error { return errReadOnly }
+	c.Configure = func(func(Live)) error { return errReadOnly }
 
 	NewSession(c).Choose(controls.Choice{Command: controls.OpenSettings})
 	NewSession(config(&window{}, p, 4)).Choose(controls.Choice{Command: controls.OpenSettings})
 
 	if len(p.alerts) != 1 || p.alerts[0] != errReadOnly.Error() {
 		t.Errorf("alerts %q, want the failure told once and nothing from a session without settings", p.alerts)
+	}
+}
+
+func TestAdoptedSettingsTakeHoldAtOnce(t *testing.T) {
+	w, p := &window{}, &panel{}
+	c := config(w, p, 4)
+	remembered := 0
+	c.Remember = func(string) error {
+		remembered++
+
+		return nil
+	}
+	s := NewSession(c)
+	s.Ready()
+	for _, text := range []string{"Un.", "Deux.", "Trois."} {
+		s.Report(said(text, ""))
+	}
+
+	look := ui.Look{TextPoints: 16, WidthPercent: 40, BackgroundPercent: 50}
+	s.Adopt(Live{Language: "en", Target: "en", Look: look, Shown: 2})
+	adopted := originals(w.last(t))
+
+	s.Report(said("Quatre.", ""))
+	later := originals(w.last(t))
+
+	if !slices.Equal(adopted, []string{"Deux.", "Trois."}) || !slices.Equal(later, []string{"Trois.", "Quatre."}) {
+		t.Errorf("shows %q and then %q, want the two newest pairs each time", adopted, later)
+	}
+
+	if !slices.Equal(w.looks, []ui.Look{look}) {
+		t.Errorf("the window got the looks %+v, want %+v", w.looks, look)
+	}
+
+	if status := p.last(t); status.Language != "en" || status.Target != "en" || remembered != 0 {
+		t.Errorf("the panel shows %s → %s and %d languages were remembered, want en → en and none, the file holds them already", status.Language, status.Target, remembered)
+	}
+}
+
+func TestAClosedSessionAdoptsNothing(t *testing.T) {
+	w := &window{}
+	s := NewSession(config(w, &panel{}, 4))
+	s.Close()
+
+	s.Adopt(Live{Language: "en", Target: "en", Shown: 2})
+
+	if len(w.looks) != 0 || s.Language() != "fr" {
+		t.Errorf("a closed session restyled its window %d times and speaks %q, want nothing changed", len(w.looks), s.Language())
+	}
+}
+
+func TestAnAdoptedTargetGoesToTheNextTranslation(t *testing.T) {
+	s := NewSession(config(&window{}, &panel{}, 4))
+
+	var targets []string
+	translator := s.Translator(func(_, target string) translate.Translator {
+		targets = append(targets, target)
+
+		return words("Yes.")
+	})
+
+	translator.Translate(context.Background(), "Oui.")
+	s.Adopt(Live{Language: "fr", Target: "en", Shown: 4})
+	translator.Translate(context.Background(), "Oui.")
+
+	if !slices.Equal(targets, []string{"ru", "en"}) {
+		t.Errorf("translated into %q, want ru and then en", targets)
+	}
+}
+
+func TestAnAdoptedLingerSendsOlderPairsAway(t *testing.T) {
+	w, at := &window{}, &clock{now: time.Unix(1000, 0)}
+	c := config(w, &panel{}, 4)
+	c.Now = at.read
+	s := NewSession(c)
+	s.Ready()
+
+	s.Report(said("Oui.", "Да."))
+	at.pass(5 * time.Second)
+	s.Expire()
+	s.Adopt(Live{Language: "fr", Target: "ru", Shown: 4, Linger: 3 * time.Second})
+	s.Report(said("Non.", "Нет."))
+	at.pass(time.Second)
+	s.Expire()
+
+	if got := originals(w.last(t)); !slices.Equal(got, []string{"Non."}) {
+		t.Errorf("shows %q, want Non. alone: Oui. is past the new three seconds and Non. is not", got)
+	}
+}
+
+func TestAnAdoptedLanguageSublayerDoesNotKnowLeavesTheOneSpoken(t *testing.T) {
+	s := NewSession(config(&window{}, &panel{}, 4))
+
+	s.Adopt(Live{Language: "de", Target: "ru", Shown: 4})
+
+	if got := s.Language(); got != "fr" {
+		t.Errorf("the session speaks %q, want fr kept", got)
+	}
+}
+
+func TestALookTheWindowCannotTakeEndsTheSession(t *testing.T) {
+	w := &window{styleFail: errBroken}
+	s := NewSession(config(w, &panel{}, 4))
+
+	s.Adopt(Live{Language: "fr", Target: "ru", Shown: 4})
+
+	select {
+	case <-s.Context().Done():
+	default:
+		t.Error("the session goes on after the window refused the look")
+	}
+
+	if err := s.Close(); !errors.Is(err, errBroken) {
+		t.Errorf("closing tells %v, want the window's failure", err)
 	}
 }
 

@@ -60,7 +60,8 @@ alone, and `sublayer listen file.wav` reads a recording instead of the speakers.
 Settings… in the tray menu opens a window with every setting: the languages, the servers
 with a Browse button for each program and the model, the subtitles, the phrases and the
 keys. Save writes them to the settings file and tells of a value Sublayer cannot use
-instead. The language the other side speaks changes at once, the rest at the next start.
+instead. The languages and the subtitles change at once; the servers, the phrases and the
+keys at the next start.
 
 Sublayer keeps its settings in `%APPDATA%\Sublayer\config.json`, writes the defaults
 there on the first run and reads the file at every start. The file names the language the

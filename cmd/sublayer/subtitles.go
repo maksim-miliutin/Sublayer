@@ -18,7 +18,7 @@ import (
 
 const (
 	expireEvery  = 250 * time.Millisecond
-	settingsNote = "The other side's language changes at once, the rest at the next start."
+	settingsNote = "The languages and the subtitles change at once, the rest at the next start."
 )
 
 type editor interface {
@@ -53,7 +53,8 @@ func subtitles(args []string, m machine) (err error) {
 		}()
 	}
 
-	window, err := ui.Open(ui.Options{Corner: cornerOf(s), Look: lookOf(s)})
+	live := liveOf(s)
+	window, err := ui.Open(ui.Options{Corner: cornerOf(s), Look: live.Look})
 	if err != nil {
 		return errors.Join(err, panel.Close())
 	}
@@ -62,17 +63,14 @@ func subtitles(args []string, m machine) (err error) {
 	defer settingsWindow.Close()
 
 	session := app.NewSession(app.Config{
+		Live:      live,
 		Window:    window,
 		Panel:     panel,
-		Shown:     s.Pairs,
-		Language:  s.Language,
 		Languages: settings.Languages,
-		Target:    s.Target,
 		Remember:  func(language string) error { return m.update(speaking(language)) },
 		Place:     func(at ui.Point) error { return m.update(placed(at)) },
 		MoveHint:  "Drag to move, then " + keyOf(keys, controls.ToggleMove) + " again to fix",
-		Linger:    s.Overlay.Linger(),
-		Configure: func(choose func(controls.Choice)) error { return configure(m, settingsWindow, choose) },
+		Configure: func(adopt func(app.Live)) error { return configure(m, settingsWindow, adopt) },
 	})
 	ticks := time.NewTicker(expireEvery)
 	defer ticks.Stop()
@@ -132,7 +130,7 @@ func expire(session *app.Session, ticks <-chan time.Time) {
 	}
 }
 
-func configure(m machine, e editor, choose func(controls.Choice)) error {
+func configure(m machine, e editor, adopt func(app.Live)) error {
 	current, err := m.settings()
 	if err != nil {
 		return err
@@ -144,7 +142,7 @@ func configure(m machine, e editor, choose func(controls.Choice)) error {
 			return err
 		}
 
-		choose(controls.Choice{Command: controls.ChooseLanguage, Language: saved.Language})
+		adopt(liveOf(saved))
 
 		return nil
 	}})
@@ -166,8 +164,14 @@ func save(m machine, edited []form.Section) (settings.Settings, error) {
 	return saved, errors.Join(invalid, err)
 }
 
-func lookOf(s settings.Settings) ui.Look {
-	return ui.Look{TextPoints: s.Overlay.TextSize, WidthPercent: s.Overlay.WidthPercent, BackgroundPercent: s.Overlay.BackgroundPercent}
+func liveOf(s settings.Settings) app.Live {
+	return app.Live{
+		Language: s.Language,
+		Target:   s.Target,
+		Look:     ui.Look{TextPoints: s.Overlay.TextSize, WidthPercent: s.Overlay.WidthPercent, BackgroundPercent: s.Overlay.BackgroundPercent},
+		Shown:    s.Pairs,
+		Linger:   s.Overlay.Linger(),
+	}
 }
 
 func cornerOf(s settings.Settings) *ui.Point {
