@@ -2,7 +2,6 @@ package ui
 
 import (
 	"runtime"
-	"slices"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -29,6 +28,7 @@ const (
 	gwlExStyle       = ^uintptr(19)
 	wmClose          = 0x0010
 	wmRedraw         = 0x8000
+	wmRestyle        = 0x8001
 	spiGetWorkArea   = 0x0030
 
 	className = "SublayerOverlay"
@@ -164,6 +164,10 @@ func dispatch(hwnd, message, wParam, lParam uintptr) uintptr {
 		w.redraw()
 
 		return 0
+	case message == wmRestyle && w != nil:
+		w.restyle()
+
+		return 0
 	case message == wmNcHitTest && w != nil && w.moving:
 		return htCaption
 	case message == wmMove && w != nil:
@@ -187,9 +191,10 @@ type window struct {
 	user     *user
 	renderer *renderer
 	hwnd     uintptr
+	dpi      int
 	moving   bool
-	look     Look
 	mu       sync.Mutex
+	look     Look
 	corner   *Point
 	placed   rect
 	frame    Frame
@@ -246,8 +251,9 @@ func (w *window) create() error {
 		return err
 	}
 	dpi, _, _ := syscall.SyscallN(w.user.getDpiForSystem)
+	w.dpi = int(dpi)
 
-	r, err := newRenderer(int(dpi), w.look)
+	r, err := newRenderer(w.dpi, w.look)
 	if err != nil {
 		return err
 	}
@@ -293,7 +299,7 @@ func (w *window) loop() {
 
 func (w *window) Show(f Frame) error {
 	w.mu.Lock()
-	w.frame = Frame{Pairs: slices.Clone(f.Pairs), State: f.State}
+	w.frame = f.clone()
 	err := w.err
 	w.mu.Unlock()
 
@@ -302,6 +308,24 @@ func (w *window) Show(f Frame) error {
 	}
 
 	posted, _, callErr := syscall.SyscallN(w.user.postMessage, w.hwnd, wmRedraw, 0, 0)
+	if posted == 0 {
+		return failure("PostMessageW", callErr)
+	}
+
+	return nil
+}
+
+func (w *window) Style(l Look) error {
+	w.mu.Lock()
+	w.look = l
+	err := w.err
+	w.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	posted, _, callErr := syscall.SyscallN(w.user.postMessage, w.hwnd, wmRestyle, 0, 0)
 	if posted == 0 {
 		return failure("PostMessageW", callErr)
 	}
@@ -331,22 +355,42 @@ func (w *window) Close() error {
 }
 
 func (w *window) redraw() {
-	err := w.refresh()
+	w.record(w.refresh())
+}
+
+func (w *window) restyle() {
+	w.mu.Lock()
+	look := w.look
+	w.mu.Unlock()
+
+	r, err := newRenderer(w.dpi, look)
+	if err != nil {
+		w.record(err)
+
+		return
+	}
+
+	w.renderer.close()
+	w.renderer = r
+	w.redraw()
+}
+
+func (w *window) record(err error) {
 	if err == nil {
 		return
 	}
 
 	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.err == nil {
 		w.err = err
 	}
-	w.mu.Unlock()
 }
 
 func (w *window) refresh() error {
 	w.mu.Lock()
-	f := w.frame
-	corner := w.corner
+	f, corner, look := w.frame, w.corner, w.look
 	w.mu.Unlock()
 
 	var area winRect
@@ -356,7 +400,7 @@ func (w *window) refresh() error {
 	}
 
 	work := rect{x: int(area.left), y: int(area.top), w: int(area.right - area.left), h: int(area.bottom - area.top)}
-	l := layoutFor(work, w.renderer.metrics, w.look)
+	l := layoutFor(work, w.renderer.metrics, look)
 
 	c, err := w.renderer.draw(f, l)
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/maksim-miliutin/Sublayer/internal/app"
-	"github.com/maksim-miliutin/Sublayer/internal/controls"
 	"github.com/maksim-miliutin/Sublayer/internal/form"
 	"github.com/maksim-miliutin/Sublayer/internal/pipeline"
 	"github.com/maksim-miliutin/Sublayer/internal/settings"
@@ -29,6 +28,10 @@ func (s *screen) Show(f ui.Frame) error {
 	return nil
 }
 
+func (s *screen) Style(ui.Look) error {
+	return nil
+}
+
 func (s *screen) Corner() ui.Point {
 	return ui.Point{}
 }
@@ -44,18 +47,20 @@ func (s *screen) pairs() int {
 	return len(s.frames[len(s.frames)-1].Pairs)
 }
 
-func TestLookOfCarriesTheOverlaySettings(t *testing.T) {
+func TestLiveOfCarriesWhatChangesAtOnce(t *testing.T) {
 	s := settings.Defaults()
+	s.Language, s.Target, s.Pairs = "fr", "en", 2
 	s.Overlay = settings.Overlay{TextSize: 14, WidthPercent: 33, BackgroundPercent: 50, LingerSeconds: 4}
 
-	if got := lookOf(s); got != (ui.Look{TextPoints: 14, WidthPercent: 33, BackgroundPercent: 50}) {
-		t.Errorf("got %+v", got)
+	want := app.Live{Language: "fr", Target: "en", Look: ui.Look{TextPoints: 14, WidthPercent: 33, BackgroundPercent: 50}, Shown: 2, Linger: 4 * time.Second}
+	if got := liveOf(s); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
 func TestExpireLetsPairsGoOnEachTickUntilTheSessionEnds(t *testing.T) {
 	w, at := &screen{}, time.Unix(1000, 0)
-	session := app.NewSession(app.Config{Window: w, Shown: 3, Linger: time.Second, Now: func() time.Time { return at }})
+	session := app.NewSession(app.Config{Live: app.Live{Shown: 3, Linger: time.Second}, Window: w, Now: func() time.Time { return at }})
 	session.Ready()
 	session.Report(pipeline.Result{Text: "Oui.", Translation: "Да."})
 	at = at.Add(2 * time.Second)
@@ -141,11 +146,11 @@ func labelled(t *testing.T, sections []form.Section, label string) *form.Field {
 	return all[at]
 }
 
-func opened(t *testing.T, file *store, choose func(controls.Choice)) (*editing, []form.Section) {
+func opened(t *testing.T, file *store, adopt func(app.Live)) (*editing, []form.Section) {
 	t.Helper()
 
 	window := &editing{}
-	if err := configure(file.machine(), window, choose); err != nil {
+	if err := configure(file.machine(), window, adopt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,11 +164,12 @@ func opened(t *testing.T, file *store, choose func(controls.Choice)) (*editing, 
 
 func TestTheSettingsWindowSavesOverWhatTheFileHoldsByThen(t *testing.T) {
 	file := &store{file: settings.Defaults()}
-	var chosen []controls.Choice
-	window, edited := opened(t, file, func(c controls.Choice) { chosen = append(chosen, c) })
+	var adopted []app.Live
+	window, edited := opened(t, file, func(l app.Live) { adopted = append(adopted, l) })
 
 	labelled(t, edited, "Text size, pt").Value = "16"
 	labelled(t, edited, "The other side speaks").Value = "en"
+	labelled(t, edited, "Pairs on screen").Value = "2"
 	file.file.Corner = &settings.Corner{X: 40, Y: 980}
 
 	if err := window.config.Save(edited); err != nil {
@@ -175,27 +181,28 @@ func TestTheSettingsWindowSavesOverWhatTheFileHoldsByThen(t *testing.T) {
 		t.Errorf("the file holds text size %d, %q and corner %+v; want 16, en and the corner kept", got.Overlay.TextSize, got.Language, got.Corner)
 	}
 
-	if want := []controls.Choice{{Command: controls.ChooseLanguage, Language: "en"}}; !slices.Equal(chosen, want) {
-		t.Errorf("chose %+v, want %+v", chosen, want)
+	want := app.Live{Language: "en", Target: "ru", Look: ui.Look{TextPoints: 16, WidthPercent: 25, BackgroundPercent: 75}, Shown: 2, Linger: 10 * time.Second}
+	if !slices.Equal(adopted, []app.Live{want}) {
+		t.Errorf("adopted %+v, want %+v", adopted, want)
 	}
 }
 
 func TestAWrongFieldLeavesTheFileAsItWas(t *testing.T) {
 	file := &store{file: settings.Defaults()}
-	chosen := 0
-	window, edited := opened(t, file, func(controls.Choice) { chosen++ })
+	adopted := 0
+	window, edited := opened(t, file, func(app.Live) { adopted++ })
 
 	labelled(t, edited, "Text size, pt").Value = "7"
 	err := window.config.Save(edited)
 
-	if !errors.Is(err, settings.ErrInvalid) || !reflect.DeepEqual(file.file, settings.Defaults()) || chosen != 0 {
-		t.Errorf("got %v with %d choices and the file %+v; want settings.ErrInvalid, no choice and the file untouched", err, chosen, file.file)
+	if !errors.Is(err, settings.ErrInvalid) || !reflect.DeepEqual(file.file, settings.Defaults()) || adopted != 0 {
+		t.Errorf("got %v with %d adopted and the file %+v; want settings.ErrInvalid, nothing adopted and the file untouched", err, adopted, file.file)
 	}
 }
 
 func TestSettingsSublayerCannotReadOpenNoWindow(t *testing.T) {
 	window := &editing{}
-	err := configure((&store{broken: settings.ErrInvalid}).machine(), window, func(controls.Choice) {})
+	err := configure((&store{broken: settings.ErrInvalid}).machine(), window, func(app.Live) {})
 
 	if !errors.Is(err, settings.ErrInvalid) || window.opened != 0 {
 		t.Errorf("got %v and %d windows, want settings.ErrInvalid and none", err, window.opened)

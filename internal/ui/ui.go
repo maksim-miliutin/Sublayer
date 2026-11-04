@@ -1,6 +1,9 @@
 package ui
 
-import "errors"
+import (
+	"errors"
+	"slices"
+)
 
 var (
 	ErrUnsupported = errors.New("ui: no overlay window on this system yet")
@@ -28,6 +31,12 @@ type Frame struct {
 	Moving bool
 }
 
+func (f Frame) clone() Frame {
+	f.Pairs = slices.Clone(f.Pairs)
+
+	return f
+}
+
 type Look struct {
 	TextPoints        int // the translation's size; the original is drawn three quarters of it
 	WidthPercent      int // of the screen's working area
@@ -45,6 +54,7 @@ type Point struct {
 
 type Window interface {
 	Show(Frame) error
+	Style(Look) error
 	Corner() Point
 	Close() error
 }
